@@ -11,7 +11,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "brodansh_mandoub_pos" / "models"))
 
-from mandoub_setup import DEFAULT_PACK_QTY, PACKAGING_NAME, normalize_cat_name  # noqa: E402
+from mandoub_setup import (  # noqa: E402
+    DEFAULT_PACK_QTY,
+    FINISHED_GOODS_CATEGORY_NAME,
+    PACKAGING_NAME,
+    is_finished_goods_category,
+    normalize_cat_name,
+)
 
 
 def load_dotenv(path: Path) -> None:
@@ -61,7 +67,53 @@ def find_company_id(client: OdooClient, name: str) -> int:
     return rows[0]["id"]
 
 
-def enable_pos_categories(client: OdooClient, company_id: int) -> list[str]:
+def find_finished_goods_category_id(client: OdooClient) -> int:
+    rows = client.execute(
+        "product.category",
+        "search_read",
+        [("name", "=", FINISHED_GOODS_CATEGORY_NAME), ("parent_id", "=", False)],
+        fields=["id", "complete_name"],
+    )
+    for row in rows:
+        if is_finished_goods_category(row.get("complete_name") or row.get("name")):
+            return row["id"]
+    if rows:
+        return rows[0]["id"]
+    raise SystemExit("Inventory category not found: %s" % FINISHED_GOODS_CATEGORY_NAME)
+
+
+def finished_goods_category_ids(client: OdooClient, root_id: int) -> list[int]:
+    return client.execute("product.category", "search", [("id", "child_of", root_id)]) or []
+
+
+def restrict_pos_to_finished_goods(client: OdooClient, company_id: int, finished_cat_ids: list[int]) -> list[str]:
+    """Turn off POS for anything that is not منتج تام (raw materials, accessories, …)."""
+    log: list[str] = []
+    extra_ids = client.execute(
+        "product.template",
+        "search",
+        [
+            ("company_id", "in", [company_id, False]),
+            ("available_in_pos", "=", True),
+            ("categ_id", "not in", finished_cat_ids),
+        ],
+    )
+    for offset in range(0, len(extra_ids), 80):
+        chunk = extra_ids[offset : offset + 80]
+        client.execute(
+            "product.template",
+            "write",
+            chunk,
+            {"available_in_pos": False, "pos_categ_ids": [(5, 0, 0)]},
+        )
+    log.append(
+        "Disabled POS on %s products outside «%s»."
+        % (len(extra_ids), FINISHED_GOODS_CATEGORY_NAME)
+    )
+    return log
+
+
+def enable_pos_categories(client: OdooClient, company_id: int, finished_cat_ids: list[int]) -> list[str]:
     log: list[str] = []
     ids = client.execute(
         "product.template",
@@ -69,6 +121,7 @@ def enable_pos_categories(client: OdooClient, company_id: int) -> list[str]:
         [
             ("sale_ok", "=", True),
             ("company_id", "in", [company_id, False]),
+            ("categ_id", "in", finished_cat_ids),
             ("pos_categ_ids", "!=", False),
             ("available_in_pos", "=", False),
         ],
@@ -76,14 +129,22 @@ def enable_pos_categories(client: OdooClient, company_id: int) -> list[str]:
     for offset in range(0, len(ids), 80):
         chunk = ids[offset : offset + 80]
         client.execute("product.template", "write", chunk, {"available_in_pos": True})
-    log.append("Enabled available_in_pos on %s products that already have a POS category." % len(ids))
+    log.append(
+        "Enabled available_in_pos on %s «%s» products that already have a POS category."
+        % (len(ids), FINISHED_GOODS_CATEGORY_NAME)
+    )
     return log
 
 
-def link_missing_pos_categories(client: OdooClient, company_id: int) -> list[str]:
+def link_missing_pos_categories(client: OdooClient, company_id: int, finished_cat_ids: list[int]) -> list[str]:
     log: list[str] = []
     pos_cats = client.execute("pos.category", "search_read", [], fields=["id", "name"])
-    int_cats = client.execute("product.category", "search_read", [], fields=["id", "name"])
+    int_cats = client.execute(
+        "product.category",
+        "search_read",
+        [("id", "in", finished_cat_ids)],
+        fields=["id", "name"],
+    )
     pos_by_name = {normalize_cat_name(row["name"]): row["id"] for row in pos_cats}
     linked = 0
     for category in int_cats:
@@ -104,11 +165,11 @@ def link_missing_pos_categories(client: OdooClient, company_id: int) -> list[str
             chunk = tmpl_ids[offset : offset + 80]
             client.execute("product.template", "write", chunk, {"pos_categ_ids": [(4, pos_id)]})
             linked += len(chunk)
-    log.append("Linked POS category on %s extra products." % linked)
+    log.append("Linked POS category on %s «%s» products." % (linked, FINISHED_GOODS_CATEGORY_NAME))
     return log
 
 
-def ensure_packaging(client: OdooClient, company_id: int) -> list[str]:
+def ensure_packaging(client: OdooClient, company_id: int, finished_cat_ids: list[int]) -> list[str]:
     log: list[str] = []
     tmpl_ids = client.execute(
         "product.template",
@@ -116,6 +177,7 @@ def ensure_packaging(client: OdooClient, company_id: int) -> list[str]:
         [
             ("sale_ok", "=", True),
             ("available_in_pos", "=", True),
+            ("categ_id", "in", finished_cat_ids),
             ("company_id", "in", [company_id, False]),
         ],
     )
@@ -166,10 +228,15 @@ def ensure_packaging(client: OdooClient, company_id: int) -> list[str]:
 
 def configure(client: OdooClient, company_id: int) -> list[str]:
     log: list[str] = []
-    log.extend(link_missing_pos_categories(client, company_id))
-    log.extend(enable_pos_categories(client, company_id))
-    log.extend(ensure_packaging(client, company_id))
-    log.append("POS: categories show products; one click adds تعبئة 12 unless the product has another pack.")
+    finished_cat_ids = finished_goods_category_ids(client, find_finished_goods_category_id(client))
+    log.extend(restrict_pos_to_finished_goods(client, company_id, finished_cat_ids))
+    log.extend(link_missing_pos_categories(client, company_id, finished_cat_ids))
+    log.extend(enable_pos_categories(client, company_id, finished_cat_ids))
+    log.extend(ensure_packaging(client, company_id, finished_cat_ids))
+    log.append(
+        "POS: only «%s» products are allowed; one click adds تعبئة 12 unless another pack fits stock."
+        % FINISHED_GOODS_CATEGORY_NAME
+    )
     return log
 
 
@@ -189,12 +256,17 @@ def main() -> None:
     company_id = find_company_id(client, company_name)
     companies = client.execute("res.company", "search", [])
     client.set_company_ids(companies or [company_id])
+    finished_cat_ids = finished_goods_category_ids(client, find_finished_goods_category_id(client))
     logs = []
-    logs.extend(link_missing_pos_categories(client, company_id))
-    logs.extend(enable_pos_categories(client, company_id))
+    logs.extend(restrict_pos_to_finished_goods(client, company_id, finished_cat_ids))
+    logs.extend(link_missing_pos_categories(client, company_id, finished_cat_ids))
+    logs.extend(enable_pos_categories(client, company_id, finished_cat_ids))
     if not args.skip_packaging:
-        logs.extend(ensure_packaging(client, company_id))
-    logs.append("POS: categories show products; one click adds تعبئة 12 unless the product has another pack.")
+        logs.extend(ensure_packaging(client, company_id, finished_cat_ids))
+    logs.append(
+        "POS: only «%s» products are allowed; reload the POS to hide raw materials."
+        % FINISHED_GOODS_CATEGORY_NAME
+    )
     for line in logs:
         print(line)
 

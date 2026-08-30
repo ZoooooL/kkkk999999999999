@@ -26,10 +26,20 @@ POS_INVOICE_BLOCKED_MSG = (
 )
 DEFAULT_PACK_QTY = 12
 PACKAGING_NAME = "تعبئة 12"
+FINISHED_GOODS_CATEGORY_NAME = "منتج تام"
 
 
 def normalize_cat_name(name):
     return " ".join((name or "").replace("ـ", "").split())
+
+
+def is_finished_goods_category(complete_name, allowed_root=FINISHED_GOODS_CATEGORY_NAME):
+    """True if the inventory category is منتج تام or one of its children."""
+    name = normalize_cat_name(complete_name)
+    root = normalize_cat_name(allowed_root)
+    if not name or not root:
+        return False
+    return name == root or name.startswith(root + " /")
 
 
 def sales_pack_qtys(packagings):

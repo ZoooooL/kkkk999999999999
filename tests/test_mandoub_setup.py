@@ -173,6 +173,18 @@ class MandoubQuotationTests(unittest.TestCase):
 
         self.assertEqual(FACTORY_WAREHOUSE_CODE, "WH-MS")
 
+    def test_only_finished_goods_category_is_allowed(self):
+        from mandoub_setup import FINISHED_GOODS_CATEGORY_NAME, is_finished_goods_category
+
+        self.assertEqual(FINISHED_GOODS_CATEGORY_NAME, "منتج تام")
+        self.assertTrue(is_finished_goods_category("منتج تام"))
+        self.assertTrue(is_finished_goods_category("منتج تام / زي مدرسي / بلايز ابتدائي"))
+        self.assertTrue(is_finished_goods_category("منتج تام / لينجز"))
+        self.assertFalse(is_finished_goods_category("خامات / كلف"))
+        self.assertFalse(is_finished_goods_category("برودان / منتج تام"))
+        self.assertFalse(is_finished_goods_category("الاقمشة"))
+        self.assertFalse(is_finished_goods_category(""))
+
 
 if __name__ == "__main__":
     unittest.main()
