@@ -26,6 +26,7 @@ from documents_setup import (  # noqa: E402
     clean_folder_name,
     entity_spec,
     numbered_folder_name,
+    resolve_subfolder,
     should_skip_source_folder,
     strip_folder_number,
     tidy_filename,
@@ -371,7 +372,6 @@ def organize_files(client: OdooClient, tree: dict, owner_id: int, admin_uids: li
         [("type", "!=", "folder"), ("active", "=", True)],
         fields=["id", "name", "folder_id", "owner_id", "company_id"],
     )
-    allowed_children = {child for node in tree.values() for child in node.get("children", {}).values()}
     untitled_id = tree["untitled"]["id"]
     parents = folder_entity_map(client, tree)
     for doc in docs:
@@ -381,15 +381,14 @@ def organize_files(client: OdooClient, tree: dict, owner_id: int, admin_uids: li
         if folder_id == untitled_id:
             skipped += 1
             continue
-        if folder_id in allowed_children:
-            skipped += 1
-            continue
         if folder_id not in parents and should_skip_source_folder(folder_name):
             skipped += 1
             continue
         entity, sub = classify_document(doc.get("name") or "", folder_name)
         if folder_id in parents:
             entity = entity or parents[folder_id]
+        if entity and sub != "untitled":
+            sub = resolve_subfolder(entity, sub)
         if not entity and sub != "untitled":
             skipped += 1
             continue
@@ -429,6 +428,8 @@ def tidy_tree_filenames(client: OdooClient, tree: dict) -> list[str]:
         folder = doc.get("folder_id")
         folder_id = folder[0] if folder else False
         new_name = tidy_filename(doc["name"])
+        if "بلا عنوان" in (doc["name"] or "") or (new_name or "").startswith("جدول "):
+            continue
         key = (folder_id, new_name.lower())
         if key in used:
             stem, dot, ext = new_name.rpartition(".")
