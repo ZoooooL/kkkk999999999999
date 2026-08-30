@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "brodansh_mandoub_pos" / "models"))
 
 from mandoub_setup import (  # noqa: E402
     CREDIT_PAYMENT_NAME,
+    FACTORY_WAREHOUSE_CODE,
     MANDOUB_POS_PREFIX,
     SHARED_KITCHEN_NAME,
     is_mandoub_pos_name,
@@ -49,6 +50,9 @@ else:
         uuid = record.uuid or ''
         company = record.company_id
         warehouse = config.picking_type_id.warehouse_id
+        factory = record.env['stock.warehouse'].search([('code', '=', '%(warehouse)s'), ('company_id', '=', company.id)], limit=1)
+        if factory:
+            warehouse = factory
         user = record.employee_id.user_id or record.session_id.employee_id.user_id or record.session_id.user_id or record.user_id
         session_id = record.session_id.id
         employee_id = record.employee_id.id if record.employee_id else (record.session_id.employee_id.id if record.session_id.employee_id else False)
@@ -131,7 +135,7 @@ else:
         finally:
             new_cr.close()
         raise UserError('تم إنشاء الطلب %%s. يظهر في شاشة المطبخ بمرحلة التأكيد. المدير يؤكد ثم المخازن توصل ثم الحسابات تفوتر. اضغط طلب جديد.' %% so_name)
-""" % {"prefix": MANDOUB_POS_PREFIX}
+""" % {"prefix": MANDOUB_POS_PREFIX, "warehouse": FACTORY_WAREHOUSE_CODE}
 
 CONFIRM_CODE = """
 origin = record.origin or ''
@@ -348,6 +352,13 @@ def close_empty_sessions(client: OdooClient, configs: list[dict]) -> tuple[list[
     return log, users_by_config
 
 
+def session_has_orders(client: OdooClient, config: dict) -> bool:
+    session_id = config.get("current_session_id")
+    if not session_id:
+        return False
+    return bool(client.execute("pos.order", "search_count", [("session_id", "=", session_id[0])]))
+
+
 def assign_cashier_and_credit(
     client: OdooClient,
     configs: list[dict],
@@ -368,18 +379,34 @@ def assign_cashier_and_credit(
         advanced_ids = [cashier["id"]]
         if manager and manager["id"] not in advanced_ids:
             advanced_ids.append(manager["id"])
-        client.execute(
-            "pos.config",
-            "write",
-            [config["id"]],
-            {
-                "module_pos_hr": True,
-                "basic_employee_ids": [(6, 0, [cashier["id"]])],
-                "advanced_employee_ids": [(6, 0, advanced_ids)],
-                "payment_method_ids": [(6, 0, [credit_id])],
-            },
-        )
-        log.append("Cashier %s = %s, create quotation (no invoice)" % (config["name"], cashier["name"]))
+        vals = {
+            "module_pos_hr": True,
+            "basic_employee_ids": [(6, 0, [cashier["id"]])],
+            "advanced_employee_ids": [(6, 0, advanced_ids)],
+        }
+        skip_payment = session_has_orders(client, config)
+        if not skip_payment:
+            vals["payment_method_ids"] = [(6, 0, [credit_id])]
+        try:
+            client.execute("pos.config", "write", [config["id"]], vals)
+        except xmlrpc.client.Fault as err:
+            if "payment_method_ids" not in vals:
+                raise
+            # Open sessions with orders block payment-method changes.
+            vals.pop("payment_method_ids", None)
+            client.execute("pos.config", "write", [config["id"]], vals)
+            log.append(
+                "Cashier %s = %s (آجل unchanged; session has orders: %s)"
+                % (config["name"], cashier["name"], err.faultString[:120])
+            )
+            continue
+        if skip_payment:
+            log.append(
+                "Cashier %s = %s, آجل skipped because the session already has orders"
+                % (config["name"], cashier["name"])
+            )
+        else:
+            log.append("Cashier %s = %s, create quotation (no invoice)" % (config["name"], cashier["name"]))
     return log
 
 

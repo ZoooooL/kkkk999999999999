@@ -131,6 +131,11 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertIn("المدير فقط", MANAGER_CONFIRM_ONLY_MSG)
         self.assertIn("%s", MANDOUB_QUOTATION_CREATED_MSG)
 
+    def test_factory_warehouse_code(self):
+        from mandoub_setup import FACTORY_WAREHOUSE_CODE
+
+        self.assertEqual(FACTORY_WAREHOUSE_CODE, "WH-MS")
+
 
 if __name__ == "__main__":
     unittest.main()

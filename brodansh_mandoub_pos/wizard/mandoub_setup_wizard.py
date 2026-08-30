@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import fields, models
+from odoo.exceptions import UserError
 
 from ..models.mandoub_setup import (
     CREDIT_PAYMENT_NAME,
@@ -115,16 +116,35 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
             advanced = cashier
             if manager:
                 advanced |= manager
-            config.write(
-                {
-                    "module_pos_hr": True,
-                    "mandoub_quotation_mode": True,
-                    "basic_employee_ids": [(6, 0, cashier.ids)],
-                    "advanced_employee_ids": [(6, 0, advanced.ids)],
-                    "payment_method_ids": [(6, 0, credit.ids)],
-                }
-            )
-            log.append("كاشير %s = %s، إنشاء طلب بدون فاتورة" % (config.name, cashier.name))
+            vals = {
+                "module_pos_hr": True,
+                "mandoub_quotation_mode": True,
+                "basic_employee_ids": [(6, 0, cashier.ids)],
+                "advanced_employee_ids": [(6, 0, advanced.ids)],
+            }
+            session = config.current_session_id
+            skip_payment = bool(session and session.order_ids)
+            if not skip_payment:
+                vals["payment_method_ids"] = [(6, 0, credit.ids)]
+            try:
+                config.write(vals)
+            except UserError as err:
+                if "payment_method_ids" not in vals:
+                    raise
+                vals.pop("payment_method_ids", None)
+                config.write(vals)
+                log.append(
+                    "كاشير %s = %s؛ طريقة الدفع آجل لم تُغيَّر لأن الجلسة فيها طلبات (%s)"
+                    % (config.name, cashier.name, err)
+                )
+                continue
+            if skip_payment:
+                log.append(
+                    "كاشير %s = %s؛ طريقة الدفع آجل لم تُغيَّر لأن الجلسة فيها طلبات"
+                    % (config.name, cashier.name)
+                )
+            else:
+                log.append("كاشير %s = %s، إنشاء طلب بدون فاتورة" % (config.name, cashier.name))
 
     def _open_sessions(self, configs, users_by_config, log):
         Session = self.env["pos.session"]
