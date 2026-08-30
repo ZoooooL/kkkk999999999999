@@ -18,11 +18,83 @@ sys.path.insert(0, str(ROOT / "brodansh_mandoub_pos" / "models"))
 
 from mandoub_setup import (  # noqa: E402
     CREDIT_PAYMENT_NAME,
+    MANDOUB_POS_PREFIX,
     SHARED_KITCHEN_NAME,
     is_mandoub_pos_name,
     kitchen_display_name_for_pos,
     stage_spec_list,
 )
+
+POS_TO_SO_AUTOMATION_NAME = "مندوب: تحويل نقطة البيع إلى عرض سعر بدون فاتورة"
+CONFIRM_AUTOMATION_NAME = "مندوب: المدير فقط يؤكد الطلب"
+
+POS_TO_SO_CODE = """
+config = record.config_id
+name = config.name if config else ''
+if not name.startswith('%(prefix)s'):
+    pass
+elif record.state == 'invoiced' or record.account_move:
+    pass
+elif not record.lines:
+    pass
+elif not record.partner_id:
+    raise UserError('اختر العميل قبل إنشاء الطلب. المندوب لا يفوتر.')
+else:
+    uuid = record.uuid or ''
+    company = record.company_id
+    warehouse = config.picking_type_id.warehouse_id
+    user = record.employee_id.user_id or record.user_id
+    lines = []
+    sequence = 10
+    for line in record.lines:
+        if not line.product_id:
+            continue
+        price = line.price_unit
+        if not price:
+            price = line.product_id.lst_price
+        lines.append((0, 0, {
+            'sequence': sequence,
+            'product_id': line.product_id.id,
+            'product_uom_qty': line.qty,
+            'price_unit': price,
+            'discount': line.discount or 0.0,
+        }))
+        sequence += 10
+    if not lines:
+        raise UserError('أضف أصنافاً قبل إنشاء الطلب.')
+    new_cr = record.env.registry.cursor()
+    try:
+        new_env = record.env(cr=new_cr, su=True).with_company(company)
+        SaleOrder = new_env['sale.order']
+        so = False
+        if uuid:
+            so = SaleOrder.search([('client_order_ref', '=', uuid), ('company_id', '=', company.id)], limit=1)
+        if so:
+            so_name = so.name
+        else:
+            term = new_env['account.payment.term'].search([('name', '=', '30 يوماً'), ('company_id', 'in', [company.id, False])], limit=1)
+            so = SaleOrder.create({
+                'partner_id': record.partner_id.id,
+                'origin': name,
+                'client_order_ref': uuid or False,
+                'user_id': user.id if user else False,
+                'company_id': company.id,
+                'warehouse_id': warehouse.id if warehouse else False,
+                'payment_term_id': term.id if term else False,
+                'order_line': lines,
+            })
+            so_name = so.name
+        new_cr.commit()
+    finally:
+        new_cr.close()
+    raise UserError('تم إنشاء الطلب %%s. المندوب لا يفوتر. المدير يؤكد ثم المخازن توصل ثم الحسابات تفوتر. اضغط طلب جديد.' %% so_name)
+""" % {"prefix": MANDOUB_POS_PREFIX}
+
+CONFIRM_CODE = """
+origin = record.origin or ''
+if origin.startswith('%s') and not env.user.has_group('sales_team.group_sale_manager'):
+    raise UserError('المدير فقط يؤكد طلبات المناديب. بعد التأكيد المخازن توصل ثم الحسابات تفوتر.')
+""" % MANDOUB_POS_PREFIX
 
 
 def load_dotenv(path: Path) -> None:
@@ -186,7 +258,7 @@ def assign_cashier_and_credit(
                 "payment_method_ids": [(6, 0, [credit_id])],
             },
         )
-        log.append("Cashier %s = %s, payment = آجل" % (config["name"], cashier["name"]))
+        log.append("Cashier %s = %s, create quotation (no invoice)" % (config["name"], cashier["name"]))
     return log
 
 
@@ -294,6 +366,136 @@ def ensure_display(client: OdooClient, name: str, company_id: int, pos_ids: list
     return log
 
 
+def _model_id(client: OdooClient, model_name: str) -> int:
+    rows = client.execute("ir.model", "search_read", [("model", "=", model_name)], fields=["id"])
+    if not rows:
+        raise SystemExit("Model not found: %s" % model_name)
+    return rows[0]["id"]
+
+
+def _ensure_code_automation(
+    client: OdooClient,
+    name: str,
+    model_name: str,
+    trigger: str,
+    code: str,
+    extra: dict | None = None,
+) -> str:
+    model_id = _model_id(client, model_name)
+    existing = client.execute(
+        "base.automation",
+        "search_read",
+        [("name", "=", name), ("model_id", "=", model_id)],
+        fields=["id", "action_server_ids"],
+    )
+    vals = {
+        "name": name,
+        "model_id": model_id,
+        "trigger": trigger,
+        "active": True,
+    }
+    if extra:
+        vals.update(extra)
+    if existing:
+        auto_id = existing[0]["id"]
+        client.execute("base.automation", "write", [auto_id], vals)
+        action_ids = existing[0].get("action_server_ids") or []
+        if action_ids:
+            client.execute("ir.actions.server", "write", action_ids, {"state": "code", "code": code, "name": name})
+        else:
+            action_id = client.execute(
+                "ir.actions.server",
+                "create",
+                {
+                    "name": name,
+                    "model_id": model_id,
+                    "state": "code",
+                    "code": code,
+                    "usage": "base_automation",
+                },
+            )
+            client.execute("base.automation", "write", [auto_id], {"action_server_ids": [(4, action_id)]})
+        return "Updated automation %s" % name
+    vals["action_server_ids"] = [
+        (
+            0,
+            0,
+            {
+                "name": name,
+                "model_id": model_id,
+                "state": "code",
+                "code": code,
+                "usage": "base_automation",
+            },
+        )
+    ]
+    client.execute("base.automation", "create", vals)
+    return "Created automation %s" % name
+
+
+def set_delivery_invoice_policy(client: OdooClient, company_id: int) -> str:
+    ids = client.execute(
+        "product.template",
+        "search",
+        [("sale_ok", "=", True), ("company_id", "=", company_id), ("invoice_policy", "=", "order")],
+    )
+    if not ids:
+        return "Invoice policy already delivery-based."
+    for offset in range(0, len(ids), 80):
+        client.execute("product.template", "write", ids[offset : offset + 80], {"invoice_policy": "delivery"})
+    return "Set invoice_policy=delivery on %s products." % len(ids)
+
+
+def enable_quotation_mode_field(client: OdooClient, config_ids: list[int]) -> str:
+    fields = client.execute("pos.config", "fields_get", [], attributes=["type"])
+    if "mandoub_quotation_mode" not in fields:
+        return "POS quotation-mode field not installed yet (addon JS still required for the button label)."
+    client.execute("pos.config", "write", config_ids, {"mandoub_quotation_mode": True})
+    return "Enabled mandoub_quotation_mode on %s POS configs." % len(config_ids)
+
+
+def apply_quotation_workflow(client: OdooClient, company_id: int, config_ids: list[int]) -> list[str]:
+    log: list[str] = []
+    log.append(set_delivery_invoice_policy(client, company_id))
+    log.append(enable_quotation_mode_field(client, config_ids))
+    log.append(
+        _ensure_code_automation(
+            client,
+            POS_TO_SO_AUTOMATION_NAME,
+            "pos.order",
+            "on_create_or_write",
+            POS_TO_SO_CODE,
+            extra={"filter_domain": "[('config_id', 'in', %s)]" % config_ids},
+        )
+    )
+    sale_state_auto = client.execute(
+        "base.automation",
+        "search_read",
+        [("id", "=", 3)],
+        fields=["trg_selection_field_id", "trigger_field_ids"],
+    )
+    extra = {"filter_domain": "[('state', '=', 'sale')]"}
+    if sale_state_auto:
+        trg = sale_state_auto[0].get("trg_selection_field_id")
+        fields = sale_state_auto[0].get("trigger_field_ids")
+        if trg:
+            extra["trg_selection_field_id"] = trg[0] if isinstance(trg, (list, tuple)) else trg
+        if fields:
+            extra["trigger_field_ids"] = [(6, 0, fields)]
+    log.append(
+        _ensure_code_automation(
+            client,
+            CONFIRM_AUTOMATION_NAME,
+            "sale.order",
+            "on_state_set",
+            CONFIRM_CODE,
+            extra=extra,
+        )
+    )
+    log.append("Workflow: mandoub creates quotation → manager confirms → warehouse delivers → accounting invoices")
+    return log
+
+
 def configure(client: OdooClient, company_id: int) -> list[str]:
     log: list[str] = []
     configs = client.execute(
@@ -322,6 +524,7 @@ def configure(client: OdooClient, company_id: int) -> list[str]:
             )
         )
     log.append("Kitchen stages: مؤكد → تم الشحن → الفوترة")
+    log.extend(apply_quotation_workflow(client, company_id, pos_ids))
     return log
 
 
@@ -341,7 +544,8 @@ def main() -> None:
         print("Kitchen stages:", ", ".join(spec["name"] for spec in stage_spec_list()))
         print("Shared display:", SHARED_KITCHEN_NAME)
         print("Cashier: each mandoub employee")
-        print("Payment method:", CREDIT_PAYMENT_NAME)
+        print("Flow: mandoub creates quotation → manager confirms → warehouse delivers → accounting invoices")
+        print("Payment method (fallback only):", CREDIT_PAYMENT_NAME)
         return
 
     url = require_env("ODOO_URL")

@@ -1,7 +1,7 @@
 {
     "name": "برودانش — جلسات المناديب وشاشة المطبخ",
-    "summary": "نقطة بيع وجلسة وشاشة تحضير لكل مندوب بمراحل مؤكد / تم الشحن / الفوترة",
-    "version": "18.0.1.0.0",
+    "summary": "المندوب ينشئ الطلب من نقطة البيع، والمدير يؤكد، والمخازن توصل، والحسابات تفوتر",
+    "version": "18.0.1.1.0",
     "category": "Sales/Point of Sale",
     "author": "Brodansh",
     "license": "LGPL-3",
@@ -10,11 +10,20 @@
         "pos_hr",
         "pos_preparation_display",
         "hr",
+        "sale_management",
+        "stock",
     ],
     "data": [
         "security/ir.model.access.csv",
         "wizard/mandoub_setup_wizard_views.xml",
     ],
+    "assets": {
+        "point_of_sale._assets_pos": [
+            "brodansh_mandoub_pos/static/src/app/mandoub_quotation.js",
+            "brodansh_mandoub_pos/static/src/app/mandoub_quotation.xml",
+            "brodansh_mandoub_pos/static/src/app/mandoub_quotation.scss",
+        ],
+    },
     "installable": True,
     "application": False,
 }

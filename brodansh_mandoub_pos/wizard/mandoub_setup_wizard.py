@@ -118,12 +118,13 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
             config.write(
                 {
                     "module_pos_hr": True,
+                    "mandoub_quotation_mode": True,
                     "basic_employee_ids": [(6, 0, cashier.ids)],
                     "advanced_employee_ids": [(6, 0, advanced.ids)],
                     "payment_method_ids": [(6, 0, credit.ids)],
                 }
             )
-            log.append("كاشير %s = %s، الدفع = آجل" % (config.name, cashier.name))
+            log.append("كاشير %s = %s، إنشاء طلب بدون فاتورة" % (config.name, cashier.name))
 
     def _open_sessions(self, configs, users_by_config, log):
         Session = self.env["pos.session"]
@@ -198,5 +199,19 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
         self._ensure_display(SHARED_KITCHEN_NAME, configs, log)
         for config in configs:
             self._ensure_display(kitchen_display_name_for_pos(config.name), config, log)
+        self._set_delivery_invoice_policy(log)
         log.append("المراحل: مؤكد → تم الشحن → الفوترة")
+        log.append("التدفق: المندوب ينشئ الطلب → المدير يؤكد → المخازن توصل → الحسابات تفوتر")
         return log
+
+    def _set_delivery_invoice_policy(self, log):
+        products = self.env["product.template"].search(
+            [
+                ("sale_ok", "=", True),
+                ("company_id", "=", self.company_id.id),
+                ("invoice_policy", "=", "order"),
+            ]
+        )
+        if products:
+            products.write({"invoice_policy": "delivery"})
+            log.append("سياسة فوترة %s صنفاً أصبحت عند التسليم." % len(products))
