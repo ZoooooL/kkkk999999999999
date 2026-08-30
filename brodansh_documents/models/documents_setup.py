@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import re
 
 ADMIN_GROUP_NAME = "إدارة المستندات"
 ADMIN_GROUP_COMMENT = (
@@ -56,6 +57,11 @@ SOURCE_FOLDER_HINTS = {
     "Finance": "factory",
     "الماليـــه": "factory",
     "الضريبة": "factory",
+    "مصنع ذو الجناحين": "factory",
+    "ابنتي الصغيرة": "daughter",
+    "الورشة": "workshop",
+    "عمارة الرمال": "ramal",
+    "عمارة المصفاة": "masfat",
 }
 
 SENSITIVE_FOLDER_NAMES = (
@@ -68,6 +74,12 @@ SENSITIVE_FOLDER_NAMES = (
     "الجرد 2024",
     "الضريبة",
 )
+
+SOURCE_SUBFOLDER_HINTS = {
+    "الضريبة": "tax",
+    "Finance": "finance",
+    "الماليـــه": "finance",
+}
 
 SKIP_MOVE_FOLDERS = (
     "HR",
@@ -111,14 +123,16 @@ def match_subfolder_key(name):
         return "licenses"
     if "عنوان" in n:
         return "addresses"
-    if any(token in n for token in ("شهاد", "استعراض")):
+    if any(token in n for token in ("شهاد", "استعراض", "مشهد", "9001", "تامين", "تأمين")):
         return "certificates"
     if any(token in n for token in ("ضريب", "زكاة", "زكاه", "الذكاة", "قيمة مضافة", "اقرار", "إقرار")):
         return "tax"
     if any(token in n for token in ("عقد", "عقود")):
         return "contracts"
-    if n.endswith(".xlsx") or any(token in n for token in ("مبيعات", "مشتريات", "اهلاك", "إهلاك")):
+    if n.endswith(".xlsx") or any(token in n for token in ("مبيعات", "مشتريات", "اهلاك", "إهلاك", "شيكات", "ميزانية")):
         return "finance"
+    if ".pdf" in n and re.search(r"\d{1,2}\s*[-/.]\s*202\d", n):
+        return "tax"
     if n.endswith(".pdf") or n.endswith(".png") or n.endswith(".jpeg") or n.endswith(".jpg"):
         return None
     return None
@@ -140,6 +154,14 @@ def classify_document(name, source_folder_name=""):
         return None, "untitled"
     if entity is None and sub in ("tax", "finance"):
         entity = "factory"
+    if entity and not sub and source_folder_name:
+        cleaned = clean_folder_name(source_folder_name)
+        sub = SOURCE_SUBFOLDER_HINTS.get(cleaned)
+        if sub is None:
+            for hint, key in SOURCE_SUBFOLDER_HINTS.items():
+                if normalize_doc_name(hint) in normalize_doc_name(source_folder_name):
+                    sub = key
+                    break
     if entity is None:
         return None, sub
     return entity, sub

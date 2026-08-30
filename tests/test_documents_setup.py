@@ -58,8 +58,16 @@ class DocumentsSetupTests(unittest.TestCase):
             ("factory", "tax"),
         )
         self.assertEqual(
-            classify_document("عقد صيانة.pdf", "مستندات الورشة"),
-            ("workshop", "contracts"),
+            classify_document("مشهد صيانة.pdf", "الورشة"),
+            ("workshop", "certificates"),
+        )
+        self.assertEqual(
+            classify_document("التامينات.pdf", "مستندات المصنع"),
+            ("factory", "certificates"),
+        )
+        self.assertEqual(
+            classify_document("09- 2025 .pdf", "مصنع ذو الجناحين"),
+            ("factory", "tax"),
         )
 
     def test_untitled_spreadsheets(self):
