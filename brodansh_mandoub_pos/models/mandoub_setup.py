@@ -8,10 +8,11 @@ CREDIT_PAYMENT_TERM_NAME = "30 يوماً"
 FACTORY_WAREHOUSE_CODE = "WH-MS"
 
 KITCHEN_STAGES = [
-    {"name": "مؤكد", "color": "#198754", "alert_timer": 15, "sequence": 1},
-    {"name": "تم الشحن", "color": "#0d6efd", "alert_timer": 30, "sequence": 2},
+    {"name": "التأكيد", "color": "#198754", "alert_timer": 15, "sequence": 1},
+    {"name": "التوصيل", "color": "#0d6efd", "alert_timer": 30, "sequence": 2},
     {"name": "الفوترة", "color": "#6f42c1", "alert_timer": 10, "sequence": 3},
 ]
+KITCHEN_NOTE_PREFIX = "[طلب]"
 
 MANDOUB_QUOTATION_CREATED_MSG = (
     "تم إنشاء الطلب %s. المندوب لا يفوتر ولا يستلم دفعاً. "
@@ -35,6 +36,24 @@ def normalize_arabic_name(text):
 
 def kitchen_display_name_for_pos(pos_name):
     return "%s%s" % (KITCHEN_DISPLAY_PREFIX, pos_name)
+
+
+def kitchen_card_note(so_name, partner_name="", salesperson_name=""):
+    parts = [KITCHEN_NOTE_PREFIX, so_name]
+    if partner_name:
+        parts.append(partner_name)
+    if salesperson_name:
+        parts.append(salesperson_name)
+    return " | ".join(parts)
+
+
+def kitchen_stage_index(order_state, delivery_done=False, invoiced=False):
+    """0=التأكيد, 1=التوصيل, 2=الفوترة"""
+    if invoiced or delivery_done:
+        return 2
+    if order_state == "sale":
+        return 1
+    return 0
 
 
 def stage_spec_list():

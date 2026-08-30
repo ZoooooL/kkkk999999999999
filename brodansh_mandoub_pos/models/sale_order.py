@@ -10,6 +10,7 @@ from .mandoub_setup import (
     _as_id,
     is_mandoub_origin,
     is_mandoub_pos_name,
+    kitchen_card_note,
     quotation_vals_from_pos_cart,
 )
 
@@ -26,7 +27,96 @@ class SaleOrder(models.Model):
             mandoub_orders = self.filtered(lambda order: order._is_mandoub_quotation())
             if mandoub_orders:
                 raise UserError(_(MANAGER_CONFIRM_ONLY_MSG))
-        return super().action_confirm()
+        res = super().action_confirm()
+        self.filtered(lambda order: order._is_mandoub_quotation())._move_mandoub_kitchen_stage(2)
+        return res
+
+    def _mandoub_kitchen_preps(self):
+        self.ensure_one()
+        return self.env["pos_preparation_display.order"].search(
+            [("pdis_general_note", "ilike", self.name)]
+        )
+
+    def _move_mandoub_kitchen_stage(self, sequence):
+        PrepOrder = self.env["pos_preparation_display.order"]
+        for order in self:
+            for prep in order._mandoub_kitchen_preps():
+                for ost in prep.order_stage_ids:
+                    stages = ost.preparation_display_id.stage_ids.sorted(
+                        lambda stage: (stage.sequence or 0, stage.id)
+                    )
+                    if len(stages) < sequence:
+                        continue
+                    prep.change_order_stage(stages[sequence - 1].id, ost.preparation_display_id.id)
+
+    def _create_mandoub_kitchen_card(self, session=None):
+        """Put the quotation on the kitchen screens: التأكيد → التوصيل → الفوترة."""
+        self.ensure_one()
+        if session is None or not session:
+            session = self.env["pos.session"].search(
+                [("config_id.name", "=", self.origin), ("state", "=", "opened")],
+                limit=1,
+            )
+        if not session:
+            return False
+        note = kitchen_card_note(self.name, self.partner_id.display_name, self.user_id.name)
+        pos_lines = []
+        for line in self.order_line.filtered(lambda l: l.product_id):
+            pos_lines.append(
+                (
+                    0,
+                    0,
+                    {
+                        "product_id": line.product_id.id,
+                        "qty": line.product_uom_qty,
+                        "price_unit": line.price_unit,
+                        "price_subtotal": line.price_subtotal,
+                        "price_subtotal_incl": line.price_total,
+                        "full_product_name": line.name or line.product_id.display_name,
+                    },
+                )
+            )
+        if not pos_lines:
+            return False
+        employee = session.employee_id
+        if self.user_id:
+            employee = (
+                self.env["hr.employee"].search(
+                    [("user_id", "=", self.user_id.id), ("company_id", "=", self.company_id.id)],
+                    limit=1,
+                )
+                or employee
+            )
+        shadow = (
+            self.env["pos.order"]
+            .with_context(mandoub_kitchen_shadow=True)
+            .create(
+                {
+                    "session_id": session.id,
+                    "partner_id": self.partner_id.id,
+                    "employee_id": employee.id if employee else False,
+                    "amount_tax": self.amount_tax,
+                    "amount_total": self.amount_total,
+                    "amount_paid": 0.0,
+                    "amount_return": 0.0,
+                    "state": "draft",
+                    "to_invoice": False,
+                    "general_note": note,
+                    "lines": pos_lines,
+                }
+            )
+        )
+        self.env["pos_preparation_display.order"].process_order(shadow.id)
+        preps = self.env["pos_preparation_display.order"].search([("pos_order_id", "=", shadow.id)])
+        preps.write(
+            {
+                "pdis_general_note": note,
+                "displayed": True,
+                "employee_id": employee.id if employee else False,
+            }
+        )
+        shadow.with_context(mandoub_kitchen_shadow=True).action_pos_order_cancel()
+        return True
 
     def _mandoub_warehouse(self, config):
         warehouse = config.picking_type_id.warehouse_id
@@ -112,6 +202,7 @@ class SaleOrder(models.Model):
             )
             % config.name
         )
+        order._create_mandoub_kitchen_card(session=session if session else None)
         return {
             "sale_order_id": order.id,
             "name": order.name,

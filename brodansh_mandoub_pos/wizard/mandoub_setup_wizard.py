@@ -185,6 +185,9 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
         else:
             self._sync_stages(display, log)
         display.write({"pos_config_ids": [(6, 0, pos_configs.ids)]})
+        categories = self.env["pos.category"].search([])
+        if categories:
+            display.write({"category_ids": [(6, 0, categories.ids)]})
         return display
 
     def _apply_setup(self):
@@ -200,7 +203,7 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
         for config in configs:
             self._ensure_display(kitchen_display_name_for_pos(config.name), config, log)
         self._set_delivery_invoice_policy(log)
-        log.append("المراحل: مؤكد → تم الشحن → الفوترة")
+        log.append("المراحل: التأكيد → التوصيل → الفوترة")
         log.append("التدفق: المندوب ينشئ الطلب → المدير يؤكد → المخازن توصل → الحسابات تفوتر")
         return log
 

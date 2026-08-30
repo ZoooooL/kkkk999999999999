@@ -14,7 +14,9 @@ from mandoub_setup import (
     credit_payment_vals,
     is_mandoub_origin,
     is_mandoub_pos_name,
+    kitchen_card_note,
     kitchen_display_name_for_pos,
+    kitchen_stage_index,
     quotation_vals_from_pos_cart,
     stage_spec_list,
 )
@@ -35,14 +37,14 @@ class MandoubSetupTests(unittest.TestCase):
 
     def test_stage_order_and_labels(self):
         names = [row["name"] for row in stage_spec_list()]
-        self.assertEqual(names, ["مؤكد", "تم الشحن", "الفوترة"])
+        self.assertEqual(names, ["التأكيد", "التوصيل", "الفوترة"])
         sequences = [row["sequence"] for row in stage_spec_list()]
         self.assertEqual(sequences, [1, 2, 3])
 
     def test_stage_spec_is_copied(self):
         specs = stage_spec_list()
         specs[0]["name"] = "changed"
-        self.assertEqual(stage_spec_list()[0]["name"], "مؤكد")
+        self.assertEqual(stage_spec_list()[0]["name"], "التأكيد")
 
     def test_shared_overview_name(self):
         self.assertEqual(SHARED_KITCHEN_NAME, "مناديب")
@@ -118,7 +120,13 @@ class MandoubQuotationTests(unittest.TestCase):
             normalize_arabic_name("عبدالمجيــد 111"),
         )
 
-    def test_workflow_messages(self):
+    def test_kitchen_card_note_and_stages(self):
+        self.assertIn("S0001", kitchen_card_note("S0001", "عميل", "مندوب"))
+        self.assertTrue(kitchen_card_note("S0001").startswith("[طلب]"))
+        self.assertEqual(kitchen_stage_index("draft"), 0)
+        self.assertEqual(kitchen_stage_index("sale"), 1)
+        self.assertEqual(kitchen_stage_index("sale", delivery_done=True), 2)
+        self.assertEqual(kitchen_stage_index("draft", invoiced=True), 2)
         self.assertIn("لا يفوتر", MANDOUB_QUOTATION_CREATED_MSG)
         self.assertIn("المدير فقط", MANAGER_CONFIRM_ONLY_MSG)
         self.assertIn("%s", MANDOUB_QUOTATION_CREATED_MSG)

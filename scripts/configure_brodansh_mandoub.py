@@ -28,73 +28,143 @@ from mandoub_setup import normalize_arabic_name  # noqa: E402
 
 POS_TO_SO_AUTOMATION_NAME = "مندوب: تحويل نقطة البيع إلى عرض سعر بدون فاتورة"
 CONFIRM_AUTOMATION_NAME = "مندوب: المدير فقط يؤكد الطلب"
+KITCHEN_CONFIRM_AUTOMATION_NAME = "مندوب: شاشة المطبخ — التوصيل"
+KITCHEN_DELIVERY_AUTOMATION_NAME = "مندوب: شاشة المطبخ — الفوترة"
 
 POS_TO_SO_CODE = """
-config = record.config_id
-name = config.name if config else ''
-if not name.startswith('%(prefix)s'):
+if env.context.get('mandoub_kitchen_shadow'):
     pass
-elif record.state == 'invoiced' or record.account_move:
-    pass
-elif not record.lines:
-    pass
-elif not record.partner_id:
-    raise UserError('اختر العميل قبل إنشاء الطلب. المندوب لا يفوتر.')
 else:
-    uuid = record.uuid or ''
-    company = record.company_id
-    warehouse = config.picking_type_id.warehouse_id
-    user = record.employee_id.user_id or record.session_id.employee_id.user_id or record.session_id.user_id or record.user_id
-    lines = []
-    sequence = 10
-    for line in record.lines:
-        if not line.product_id:
-            continue
-        price = line.price_unit
-        if not price:
-            price = line.product_id.lst_price
-        lines.append((0, 0, {
-            'sequence': sequence,
-            'product_id': line.product_id.id,
-            'product_uom_qty': line.qty,
-            'price_unit': price,
-            'discount': line.discount or 0.0,
-        }))
-        sequence += 10
-    if not lines:
-        raise UserError('أضف أصنافاً قبل إنشاء الطلب.')
-    new_cr = record.env.registry.cursor()
-    try:
-        new_env = record.env(cr=new_cr, su=True)
-        SaleOrder = new_env['sale.order'].with_company(company)
-        so = False
-        if uuid:
-            so = SaleOrder.search([('client_order_ref', '=', uuid), ('company_id', '=', company.id)], limit=1)
-        if so:
-            so_name = so.name
-        else:
-            term = new_env['account.payment.term'].search([('name', '=', '30 يوماً'), ('company_id', 'in', [company.id, False])], limit=1)
-            so = SaleOrder.create({
-                'partner_id': record.partner_id.id,
-                'origin': name,
-                'client_order_ref': uuid or False,
-                'user_id': user.id if user else False,
-                'company_id': company.id,
-                'warehouse_id': warehouse.id if warehouse else False,
-                'payment_term_id': term.id if term else False,
-                'order_line': lines,
-            })
-            so_name = so.name
-        new_cr.commit()
-    finally:
-        new_cr.close()
-    raise UserError('تم إنشاء الطلب %%s. المندوب لا يفوتر. المدير يؤكد ثم المخازن توصل ثم الحسابات تفوتر. اضغط طلب جديد.' %% so_name)
+    config = record.config_id
+    name = config.name if config else ''
+    if record.state in ('cancel', 'invoiced') or record.account_move:
+        pass
+    elif not name.startswith('%(prefix)s'):
+        pass
+    elif not record.lines:
+        pass
+    elif not record.partner_id:
+        raise UserError('اختر العميل قبل إنشاء الطلب. المندوب لا يفوتر.')
+    else:
+        uuid = record.uuid or ''
+        company = record.company_id
+        warehouse = config.picking_type_id.warehouse_id
+        user = record.employee_id.user_id or record.session_id.employee_id.user_id or record.session_id.user_id or record.user_id
+        session_id = record.session_id.id
+        employee_id = record.employee_id.id if record.employee_id else (record.session_id.employee_id.id if record.session_id.employee_id else False)
+        partner_id = record.partner_id.id
+        partner_name = record.partner_id.name or ''
+        user_name = user.name if user else ''
+        lines = []
+        pos_lines = []
+        sequence = 10
+        for line in record.lines:
+            if not line.product_id:
+                continue
+            price = line.price_unit
+            if not price:
+                price = line.product_id.lst_price
+            qty = line.qty
+            lines.append((0, 0, {
+                'sequence': sequence,
+                'product_id': line.product_id.id,
+                'product_uom_qty': qty,
+                'price_unit': price,
+                'discount': line.discount or 0.0,
+            }))
+            pos_lines.append((0, 0, {
+                'product_id': line.product_id.id,
+                'qty': qty,
+                'price_unit': price,
+                'price_subtotal': price * qty,
+                'price_subtotal_incl': price * qty,
+                'full_product_name': line.full_product_name or line.product_id.display_name,
+            }))
+            sequence += 10
+        if not lines:
+            raise UserError('أضف أصنافاً قبل إنشاء الطلب.')
+        new_cr = record.env.registry.cursor()
+        try:
+            new_env = record.env(cr=new_cr, su=True)
+            SaleOrder = new_env['sale.order'].with_company(company)
+            so = False
+            if uuid:
+                so = SaleOrder.search([('client_order_ref', '=', uuid), ('company_id', '=', company.id)], limit=1)
+            if so:
+                so_name = so.name
+            else:
+                term = new_env['account.payment.term'].search([('name', '=', '30 يوماً'), ('company_id', 'in', [company.id, False])], limit=1)
+                so = SaleOrder.create({
+                    'partner_id': partner_id,
+                    'origin': name,
+                    'client_order_ref': uuid or False,
+                    'user_id': user.id if user else False,
+                    'company_id': company.id,
+                    'warehouse_id': warehouse.id if warehouse else False,
+                    'payment_term_id': term.id if term else False,
+                    'order_line': lines,
+                })
+                so_name = so.name
+            note = '[طلب] | %%s | %%s | %%s' %% (so_name, partner_name, user_name)
+            try:
+                Shadow = new_env['pos.order'].with_context(mandoub_kitchen_shadow=True).with_company(company)
+                shadow = Shadow.create({
+                    'session_id': session_id,
+                    'partner_id': partner_id,
+                    'employee_id': employee_id or False,
+                    'amount_tax': 0.0,
+                    'amount_total': so.amount_total,
+                    'amount_paid': 0.0,
+                    'amount_return': 0.0,
+                    'state': 'draft',
+                    'to_invoice': False,
+                    'general_note': note,
+                    'lines': pos_lines,
+                })
+                new_env['pos_preparation_display.order'].process_order(shadow.id)
+                preps = new_env['pos_preparation_display.order'].search([('pos_order_id', '=', shadow.id)])
+                preps.write({'pdis_general_note': note, 'displayed': True, 'employee_id': employee_id or False})
+                shadow.with_context(mandoub_kitchen_shadow=True).action_pos_order_cancel()
+            except Exception:
+                pass
+            new_cr.commit()
+        finally:
+            new_cr.close()
+        raise UserError('تم إنشاء الطلب %%s. يظهر في شاشة المطبخ بمرحلة التأكيد. المدير يؤكد ثم المخازن توصل ثم الحسابات تفوتر. اضغط طلب جديد.' %% so_name)
 """ % {"prefix": MANDOUB_POS_PREFIX}
 
 CONFIRM_CODE = """
 origin = record.origin or ''
 if origin.startswith('%s') and not env.user.has_group('sales_team.group_sale_manager'):
     raise UserError('المدير فقط يؤكد طلبات المناديب. بعد التأكيد المخازن توصل ثم الحسابات تفوتر.')
+""" % MANDOUB_POS_PREFIX
+
+KITCHEN_MOVE_CODE = """
+origin = record.origin or ''
+if not origin.startswith('%(prefix)s'):
+    pass
+else:
+    seq = %(sequence)s
+    preps = env['pos_preparation_display.order'].search([('pdis_general_note', 'ilike', record.name)])
+    for prep in preps:
+        for ost in prep.order_stage_ids:
+            stages = env['pos_preparation_display.stage'].search([('preparation_display_id', '=', ost.preparation_display_id.id)], order='sequence, id')
+            if len(stages) >= seq:
+                prep.change_order_stage(stages[seq - 1].id, ost.preparation_display_id.id)
+"""
+
+KITCHEN_PICKING_CODE = """
+sale = record.sale_id
+if not sale and record.group_id:
+    sale = env['sale.order'].search([('procurement_group_id', '=', record.group_id.id)], limit=1)
+origin = sale.origin or '' if sale else ''
+if sale and origin.startswith('%s'):
+    preps = env['pos_preparation_display.order'].search([('pdis_general_note', 'ilike', sale.name)])
+    for prep in preps:
+        for ost in prep.order_stage_ids:
+            stages = env['pos_preparation_display.stage'].search([('preparation_display_id', '=', ost.preparation_display_id.id)], order='sequence, id')
+            if len(stages) >= 3:
+                prep.change_order_stage(stages[2].id, ost.preparation_display_id.id)
 """ % MANDOUB_POS_PREFIX
 
 
@@ -413,7 +483,10 @@ def ensure_display(client: OdooClient, name: str, company_id: int, pos_ids: list
         "pos_preparation_display.display",
         "write",
         [display_id],
-        {"pos_config_ids": [(6, 0, pos_ids)]},
+        {
+            "pos_config_ids": [(6, 0, pos_ids)],
+            "category_ids": [(6, 0, client.execute("pos.category", "search", []) or [])],
+        },
     )
     return log
 
@@ -544,7 +617,45 @@ def apply_quotation_workflow(client: OdooClient, company_id: int, config_ids: li
             extra=extra,
         )
     )
+    log.append(
+        _ensure_code_automation(
+            client,
+            KITCHEN_CONFIRM_AUTOMATION_NAME,
+            "sale.order",
+            "on_state_set",
+            KITCHEN_MOVE_CODE % {"prefix": MANDOUB_POS_PREFIX, "sequence": 2},
+            extra=extra,
+        )
+    )
+    picking_extra = {"filter_domain": "[('state', '=', 'done')]"}
+    picking_field = client.execute(
+        "ir.model.fields",
+        "search_read",
+        [("model", "=", "stock.picking"), ("name", "=", "state")],
+        fields=["id"],
+    )
+    if picking_field:
+        picking_extra["trigger_field_ids"] = [(6, 0, [picking_field[0]["id"]])]
+        done_sel = client.execute(
+            "ir.model.fields.selection",
+            "search_read",
+            [("field_id", "=", picking_field[0]["id"]), ("value", "=", "done")],
+            fields=["id"],
+        )
+        if done_sel:
+            picking_extra["trg_selection_field_id"] = done_sel[0]["id"]
+    log.append(
+        _ensure_code_automation(
+            client,
+            KITCHEN_DELIVERY_AUTOMATION_NAME,
+            "stock.picking",
+            "on_state_set",
+            KITCHEN_PICKING_CODE,
+            extra=picking_extra,
+        )
+    )
     log.append("Workflow: mandoub creates quotation → manager confirms → warehouse delivers → accounting invoices")
+    log.append("Kitchen: التأكيد → التوصيل → الفوترة")
     return log
 
 
@@ -575,7 +686,7 @@ def configure(client: OdooClient, company_id: int) -> list[str]:
                 [row["id"]],
             )
         )
-    log.append("Kitchen stages: مؤكد → تم الشحن → الفوترة")
+    log.append("Kitchen stages: التأكيد → التوصيل → الفوترة")
     log.extend(apply_quotation_workflow(client, company_id, pos_ids))
     return log
 
