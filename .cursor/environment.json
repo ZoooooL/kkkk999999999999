@@ -1,0 +1,4 @@
+{
+  "name": "Brodansh mandoub POS (Odoo 18 addon)",
+  "install": "python3 -m compileall -q brodansh_mandoub_pos scripts tests"
+}
