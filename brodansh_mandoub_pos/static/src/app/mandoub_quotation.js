@@ -6,15 +6,36 @@ import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { PosStore } from "@point_of_sale/app/store/pos_store";
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
+import { ProductCard } from "@point_of_sale/app/generic_components/product_card/product_card";
 
 const MANDOUB_POS_PREFIX = "مندوب —";
 
-export function salesPackQty(product, fallback = 12) {
+function productValue(product, name) {
     if (!product) {
-        return fallback;
+        return undefined;
     }
-    if (product.mandoub_pack_qty) {
-        return Number(product.mandoub_pack_qty);
+    if (product[name] !== undefined) {
+        return product[name];
+    }
+    if (product.raw && product.raw[name] !== undefined) {
+        return product.raw[name];
+    }
+    return undefined;
+}
+
+export function collectPackQtys(product) {
+    if (!product) {
+        return [];
+    }
+    const loaded = productValue(product, "mandoub_pack_qtys");
+    if (Array.isArray(loaded) && loaded.length) {
+        return loaded.map(Number).filter((qty) => qty > 0);
+    }
+    if (typeof loaded === "string" && loaded.trim()) {
+        return loaded
+            .split(",")
+            .map(Number)
+            .filter((qty) => qty > 0);
     }
     const packs = product.packaging_ids || product.packagings || [];
     const qtys = [];
@@ -28,7 +49,86 @@ export function salesPackQty(product, fallback = 12) {
             qtys.push(qty);
         }
     }
-    return qtys.length ? Math.min(...qtys) : fallback;
+    return qtys;
+}
+
+export function choosePackQty(packQtys, qtyOnHand = null, fallback = 12, alreadyInCart = 0) {
+    const qtys = (packQtys || []).map(Number).filter((qty) => qty > 0);
+    let remaining = null;
+    if (qtyOnHand !== undefined && qtyOnHand !== null && qtyOnHand !== false) {
+        remaining = Number(qtyOnHand) - Number(alreadyInCart || 0);
+        if (Number.isNaN(remaining)) {
+            remaining = null;
+        }
+    }
+    if (!qtys.length) {
+        if (remaining !== null && remaining > 0 && remaining < fallback) {
+            return remaining;
+        }
+        return fallback;
+    }
+    if (remaining === null) {
+        return Math.min(...qtys);
+    }
+    const fitting = qtys.filter((qty) => qty <= remaining);
+    if (fitting.length) {
+        return Math.max(...fitting);
+    }
+    if (remaining > 0) {
+        return remaining;
+    }
+    return Math.min(...qtys);
+}
+
+export function salesPackQty(product, fallback = 12, alreadyInCart = 0) {
+    if (!product) {
+        return fallback;
+    }
+    const packQtys = collectPackQtys(product);
+    let onHand = productValue(product, "mandoub_qty_on_hand");
+    if (onHand === undefined || onHand === null || onHand === false) {
+        onHand = null;
+    }
+    const loadedPackQty = productValue(product, "mandoub_pack_qty");
+    if (!packQtys.length && loadedPackQty) {
+        return choosePackQty([Number(loadedPackQty)], onHand, fallback, alreadyInCart);
+    }
+    return choosePackQty(packQtys, onHand, fallback, alreadyInCart);
+}
+
+export function formatOnHandQty(qty, env) {
+    if (qty === undefined || qty === null || qty === false) {
+        return "";
+    }
+    const n = Number(qty);
+    if (Number.isNaN(n)) {
+        return "";
+    }
+    if (env?.utils?.formatProductQty) {
+        return env.utils.formatProductQty(n, false);
+    }
+    return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
+}
+
+function cartQtyForProduct(pos, product) {
+    if (!pos || !product) {
+        return 0;
+    }
+    const order = pos.get_order?.() || pos.getOrder?.();
+    if (!order) {
+        return 0;
+    }
+    const productId = product.id || productValue(product, "id");
+    const lines = order.get_orderlines?.() || order.lines || [];
+    let total = 0;
+    for (const line of lines) {
+        const lineProduct = line.get_product?.() || line.product_id;
+        const lineId = lineProduct?.id || lineProduct;
+        if (lineId === productId) {
+            total += Number(line.get_quantity?.() || line.qty || 0);
+        }
+    }
+    return total;
 }
 
 export function isMandoubQuotationPos(pos) {
@@ -88,7 +188,10 @@ patch(PosStore.prototype, {
             isMandoubQuotationPos(this) &&
             (options.quantity === undefined || options.quantity === null)
         ) {
-            options = { ...options, quantity: salesPackQty(product) };
+            options = {
+                ...options,
+                quantity: salesPackQty(product, 12, cartQtyForProduct(this, product)),
+            };
         }
         return super.addProductToCurrentOrder(product, options);
     },
@@ -155,5 +258,15 @@ patch(ProductScreen.prototype, {
     },
     get mandoubPaymentLabel() {
         return isMandoubQuotationPos(this.pos) ? _t("إنشاء طلب") : _t("Payment");
+    },
+});
+
+patch(ProductCard.prototype, {
+    get mandoubShowQtyOnHand() {
+        const qty = productValue(this.props.product, "mandoub_qty_on_hand");
+        return qty !== undefined && qty !== null && qty !== false;
+    },
+    get mandoubQtyOnHandLabel() {
+        return formatOnHandQty(productValue(this.props.product, "mandoub_qty_on_hand"), this.env);
     },
 });

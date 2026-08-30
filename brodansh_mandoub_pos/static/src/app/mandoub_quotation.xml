@@ -8,4 +8,12 @@
             <span class="d-block" t-esc="mandoubPayLabel"/>
         </xpath>
     </t>
+    <t t-name="brodansh_mandoub_pos.ProductCard" t-inherit="point_of_sale.ProductCard" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('product-img')]" position="inside">
+            <span t-if="mandoubShowQtyOnHand" class="mandoub-qty-on-hand" t-esc="mandoubQtyOnHandLabel"/>
+        </xpath>
+        <xpath expr="//div[hasclass('product-name')]" position="before">
+            <span t-if="!props.imageUrl and mandoubShowQtyOnHand" class="mandoub-qty-on-hand mandoub-qty-no-image" t-esc="mandoubQtyOnHandLabel"/>
+        </xpath>
+    </t>
 </templates>

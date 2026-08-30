@@ -32,16 +32,58 @@ def normalize_cat_name(name):
     return " ".join((name or "").replace("ـ", "").split())
 
 
-def default_pos_qty(packagings, fallback=DEFAULT_PACK_QTY):
-    """Qty to add on one POS click: smallest sales pack, else تعبئة 12."""
+def sales_pack_qtys(packagings):
+    """Positive sales-pack quantities from product.packaging rows or dicts."""
     qtys = []
     for pack in packagings or []:
-        if pack.get("sales") is False:
-            continue
-        qty = pack.get("qty")
+        if isinstance(pack, dict):
+            if pack.get("sales") is False:
+                continue
+            qty = pack.get("qty")
+        else:
+            qty = pack
         if qty:
             qtys.append(qty)
-    return min(qtys) if qtys else fallback
+    return qtys
+
+
+def choose_pack_qty(pack_qtys, qty_on_hand=None, fallback=DEFAULT_PACK_QTY, already_in_cart=0):
+    """Qty to add on one POS click.
+
+    If the product has several sales packs (12 / 24 / 36), pick the largest pack
+    that still fits in remaining qty on hand. Unknown stock keeps the smallest
+    pack so a click does not oversell. Leftover below the smallest pack is added
+    as-is. Empty stock still uses the smallest pack so a quotation can be created.
+    """
+    qtys = [qty for qty in (pack_qtys or []) if qty]
+    remaining = None
+    if qty_on_hand is not None:
+        try:
+            remaining = float(qty_on_hand) - float(already_in_cart or 0)
+        except (TypeError, ValueError):
+            remaining = None
+    if not qtys:
+        if remaining is not None and 0 < remaining < fallback:
+            return remaining
+        return fallback
+    if remaining is None:
+        return min(qtys)
+    fitting = [qty for qty in qtys if qty <= remaining]
+    if fitting:
+        return max(fitting)
+    if remaining > 0:
+        return remaining
+    return min(qtys)
+
+
+def default_pos_qty(packagings, qty_on_hand=None, fallback=DEFAULT_PACK_QTY, already_in_cart=0):
+    """Qty to add on one POS click from packaging records and warehouse stock."""
+    return choose_pack_qty(
+        sales_pack_qtys(packagings),
+        qty_on_hand=qty_on_hand,
+        fallback=fallback,
+        already_in_cart=already_in_cart,
+    )
 
 
 def is_mandoub_pos_name(name):
