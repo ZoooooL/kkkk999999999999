@@ -20,12 +20,16 @@ from documents_setup import (  # noqa: E402
     ADMIN_GROUP_NAME,
     ENTITY_FOLDERS,
     SENSITIVE_FOLDER_NAMES,
+    SUBFOLDER_LABELS,
     UNTITLED_FOLDER_NAME,
     classify_document,
     clean_folder_name,
     entity_spec,
+    numbered_folder_name,
     should_skip_source_folder,
-    subfolder_label,
+    strip_folder_number,
+    tidy_filename,
+    untitled_title,
 )
 
 DOCUMENTS_CONFIG_MENU_XMLID = ("documents", "Config")
@@ -175,7 +179,7 @@ def grant_folder_access(client: OdooClient, folder_id: int, partner_ids: list[in
 
 
 def find_folder(client: OdooClient, name: str, parent_id: int | False = False) -> dict | None:
-    domain = [("type", "=", "folder"), ("name", "=", name)]
+    domain = [("type", "=", "folder")]
     if parent_id:
         domain.append(("folder_id", "=", parent_id))
     else:
@@ -185,20 +189,12 @@ def find_folder(client: OdooClient, name: str, parent_id: int | False = False) -
         "search_read",
         domain,
         fields=["id", "name", "folder_id", "owner_id", "company_id", "access_internal"],
-        limit=1,
-    )
-    if rows:
-        return rows[0]
-    # Tolerate extra spaces in existing names.
-    all_rows = client.execute(
-        "documents.document",
-        "search_read",
-        [("type", "=", "folder"), ("folder_id", "=", parent_id or False)],
-        fields=["id", "name", "folder_id", "owner_id", "company_id", "access_internal"],
     )
     needle = clean_folder_name(name)
-    for row in all_rows:
-        if clean_folder_name(row["name"]) == needle:
+    bare = strip_folder_number(needle)
+    for row in rows:
+        cleaned = clean_folder_name(row["name"])
+        if cleaned == needle or strip_folder_number(cleaned) == bare:
             return row
     return None
 
@@ -246,12 +242,14 @@ def ensure_folder(
         "is_pinned_folder": pin,
         "company_id": company_id or False,
         "folder_id": parent_id or False,
+        "active": True,
     }
     if existing:
         write_vals = {
             "name": name,
             "access_internal": "none",
             "access_via_link": "none",
+            "active": True,
         }
         if pin:
             write_vals["is_pinned_folder"] = True
@@ -279,25 +277,45 @@ def ensure_entity_tree(client: OdooClient, owner_id: int, partner_ids: list[int]
         grant_folder_access(client, folder_id, partner_ids)
         log.append(msg)
         children: dict[str, int] = {}
-        for key, label in (
-            ("licenses", "تراخيص"),
-            ("addresses", "عناوين"),
-            ("certificates", "شهادات"),
-            ("tax", "ضرائب"),
-            ("finance", "مالية"),
-            ("contracts", "عقود"),
-            ("spreadsheets", "جداول"),
-        ):
+        allowed_ids = []
+        for index, key in enumerate(spec["subfolders"], start=1):
+            label = numbered_folder_name(index, SUBFOLDER_LABELS[key])
             child_id, child_msg = ensure_folder(client, label, owner_id, parent_id=folder_id)
             grant_folder_access(client, child_id, partner_ids)
             children[key] = child_id
+            allowed_ids.append(child_id)
             log.append(child_msg)
-        tree[spec["key"]] = {"id": folder_id, "children": children, "company_id": company_id}
+        log.extend(archive_extra_subfolders(client, folder_id, allowed_ids))
+        tree[spec["key"]] = {"id": folder_id, "children": children, "company_id": company_id, "spec": spec}
     untitled_id, untitled_msg = ensure_folder(client, UNTITLED_FOLDER_NAME, owner_id, parent_id=False)
     grant_folder_access(client, untitled_id, partner_ids)
     tree["untitled"] = {"id": untitled_id, "children": {}, "company_id": False}
     log.append(untitled_msg)
     return tree, log
+
+
+def archive_extra_subfolders(client: OdooClient, parent_id: int, keep_ids: list[int]) -> list[str]:
+    log: list[str] = []
+    children = client.execute(
+        "documents.document",
+        "search_read",
+        [("type", "=", "folder"), ("folder_id", "=", parent_id), ("active", "=", True)],
+        fields=["id", "name"],
+    )
+    for child in children:
+        if child["id"] in keep_ids:
+            continue
+        file_count = client.execute(
+            "documents.document",
+            "search_count",
+            [("folder_id", "=", child["id"]), ("type", "!=", "folder"), ("active", "=", True)],
+        )
+        if file_count:
+            log.append("Left extra folder %s; it still has files." % child["name"])
+            continue
+        client.execute("documents.document", "write", [child["id"]], {"active": False})
+        log.append("Archived empty folder %s" % child["name"])
+    return log
 
 
 def target_folder_id(tree: dict, entity_key: str | None, sub_key: str | None) -> int | None:
@@ -308,7 +326,28 @@ def target_folder_id(tree: dict, entity_key: str | None, sub_key: str | None) ->
     node = tree[entity_key]
     if sub_key and sub_key in node["children"]:
         return node["children"][sub_key]
+    default_key = node.get("spec", entity_spec(entity_key) or {}).get("default_sub")
+    if default_key and default_key in node["children"]:
+        return node["children"][default_key]
     return node["id"]
+
+
+def folder_entity_map(client: OdooClient, tree: dict) -> dict[int, str]:
+    mapping: dict[int, str] = {}
+    for key, node in tree.items():
+        if key == "untitled":
+            continue
+        mapping[node["id"]] = key
+        children = client.execute(
+            "documents.document",
+            "search_read",
+            [("type", "=", "folder"), ("folder_id", "=", node["id"])],
+            fields=["id"],
+            context={**client.context, "active_test": False},
+        )
+        for child in children:
+            mapping[child["id"]] = key
+    return mapping
 
 
 def move_document(client: OdooClient, doc_id: int, folder_id: int, company_id: int | False) -> None:
@@ -322,7 +361,7 @@ def move_document(client: OdooClient, doc_id: int, folder_id: int, company_id: i
     client.execute("documents.document", "write", [doc_id], vals)
 
 
-def organize_files(client: OdooClient, tree: dict, owner_id: int) -> list[str]:
+def organize_files(client: OdooClient, tree: dict, owner_id: int, admin_uids: list[int]) -> list[str]:
     log: list[str] = []
     moved = 0
     skipped = 0
@@ -332,28 +371,33 @@ def organize_files(client: OdooClient, tree: dict, owner_id: int) -> list[str]:
         [("type", "!=", "folder"), ("active", "=", True)],
         fields=["id", "name", "folder_id", "owner_id", "company_id"],
     )
-    entity_ids = {node["id"]: key for key, node in tree.items() if key != "untitled"}
-    child_ids = {child for node in tree.values() for child in node.get("children", {}).values()}
+    allowed_children = {child for node in tree.values() for child in node.get("children", {}).values()}
     untitled_id = tree["untitled"]["id"]
+    parents = folder_entity_map(client, tree)
     for doc in docs:
         folder = doc.get("folder_id")
         folder_name = folder[1] if folder else ""
         folder_id = folder[0] if folder else False
-        if folder_id in child_ids or folder_id == untitled_id:
+        if folder_id == untitled_id:
             skipped += 1
             continue
-        if folder_id not in entity_ids and should_skip_source_folder(folder_name):
+        if folder_id in allowed_children:
+            skipped += 1
+            continue
+        if folder_id not in parents and should_skip_source_folder(folder_name):
             skipped += 1
             continue
         entity, sub = classify_document(doc.get("name") or "", folder_name)
-        if folder_id in entity_ids:
-            entity = entity or entity_ids[folder_id]
+        if folder_id in parents:
+            entity = entity or parents[folder_id]
         if not entity and sub != "untitled":
             skipped += 1
             continue
-        if sub == "untitled" and doc.get("owner_id") and doc["owner_id"][0] != owner_id:
-            skipped += 1
-            continue
+        if sub == "untitled":
+            owner = doc.get("owner_id")[0] if doc.get("owner_id") else None
+            if owner not in admin_uids:
+                skipped += 1
+                continue
         dest = target_folder_id(tree, entity, sub)
         if not dest or dest == folder_id:
             skipped += 1
@@ -364,6 +408,76 @@ def organize_files(client: OdooClient, tree: dict, owner_id: int) -> list[str]:
         log.append("Moved %s → folder %s" % (doc["name"], dest))
     log.append("Moved %s files; left %s in place." % (moved, skipped))
     return log
+
+
+def tidy_tree_filenames(client: OdooClient, tree: dict) -> list[str]:
+    log: list[str] = []
+    folder_ids = [tree["untitled"]["id"]]
+    for key, node in tree.items():
+        if key == "untitled":
+            continue
+        folder_ids.append(node["id"])
+        folder_ids.extend(node["children"].values())
+    docs = client.execute(
+        "documents.document",
+        "search_read",
+        [("type", "!=", "folder"), ("folder_id", "in", folder_ids)],
+        fields=["id", "name", "folder_id"],
+    )
+    used: set[tuple[int | bool, str]] = set()
+    for doc in docs:
+        folder = doc.get("folder_id")
+        folder_id = folder[0] if folder else False
+        new_name = tidy_filename(doc["name"])
+        key = (folder_id, new_name.lower())
+        if key in used:
+            stem, dot, ext = new_name.rpartition(".")
+            new_name = "%s (2)%s%s" % (stem, dot, ext) if dot else "%s (2)" % new_name
+        used.add((folder_id, new_name.lower()))
+        if new_name != doc["name"]:
+            client.execute("documents.document", "write", [doc["id"]], {"name": new_name})
+            log.append("Renamed %s → %s" % (doc["name"], new_name))
+    return log
+
+
+def number_untitled_sheets(client: OdooClient, untitled_id: int) -> list[str]:
+    log: list[str] = []
+    docs = client.execute(
+        "documents.document",
+        "search_read",
+        [("folder_id", "=", untitled_id), ("type", "!=", "folder")],
+        fields=["id", "name"],
+        order="id",
+    )
+    for index, doc in enumerate(docs, start=1):
+        new_name = untitled_title(index, doc["name"])
+        if new_name != doc["name"]:
+            client.execute("documents.document", "write", [doc["id"]], {"name": new_name})
+    if docs:
+        log.append("Numbered %s untitled spreadsheets." % len(docs))
+    return log
+
+
+def privatize_tree(client: OdooClient, tree: dict, partner_ids: list[int]) -> str:
+    folder_ids = [tree["untitled"]["id"]]
+    for key, node in tree.items():
+        grant_folder_access(client, node["id"] if key == "untitled" else node["id"], partner_ids)
+        folder_ids.append(node["id"])
+        folder_ids.extend(node.get("children", {}).values())
+    docs = client.execute(
+        "documents.document",
+        "search",
+        [("folder_id", "in", folder_ids)],
+    )
+    ids = list({*folder_ids, *(docs or [])})
+    if ids:
+        client.execute(
+            "documents.document",
+            "write",
+            ids,
+            {"access_internal": "none", "access_via_link": "none"},
+        )
+    return "Private access set on %s documents and folders." % len(ids)
 
 
 def lock_sensitive_folders(client: OdooClient) -> list[str]:
@@ -398,9 +512,17 @@ def configure(client: OdooClient) -> list[str]:
     log.extend(group_log)
     log.append(restrict_config_menu(client, group_id))
     partners = group_partner_ids(client, group_id)
+    group = client.execute("res.groups", "read", [group_id], fields=["users"])[0]
+    admin_uids = group.get("users") or [client.uid]
     tree, tree_log = ensure_entity_tree(client, client.uid, partners)
     log.extend(tree_log)
-    log.extend(organize_files(client, tree, client.uid))
+    log.extend(organize_files(client, tree, client.uid, admin_uids))
+    for spec in ENTITY_FOLDERS:
+        node = tree[spec["key"]]
+        log.extend(archive_extra_subfolders(client, node["id"], list(node["children"].values())))
+    log.extend(tidy_tree_filenames(client, tree))
+    log.extend(number_untitled_sheets(client, tree["untitled"]["id"]))
+    log.append(privatize_tree(client, tree, partners))
     log.extend(lock_sensitive_folders(client))
     log.append("Documents: entity folders private to %s; Configuration hidden from other groups." % ADMIN_GROUP_NAME)
     return log
