@@ -7,6 +7,7 @@ from .mandoub_setup import (
     FACTORY_WAREHOUSE_CODE,
     MANAGER_CONFIRM_ONLY_MSG,
     MANDOUB_QUOTATION_CREATED_MSG,
+    QUOTATION_REPORT_NAME,
     _as_id,
     is_mandoub_origin,
     is_mandoub_pos_name,
@@ -50,7 +51,7 @@ class SaleOrder(models.Model):
                     prep.change_order_stage(stages[sequence - 1].id, ost.preparation_display_id.id)
 
     def _create_mandoub_kitchen_card(self, session=None):
-        """Put the quotation on the kitchen screens: التأكيد → التوصيل → الفوترة."""
+        """Put the quotation on the kitchen screens: طلب → تم التأكيد → تم الشحن → الفوترة."""
         self.ensure_one()
         if session is None or not session:
             session = self.env["pos.session"].search(
@@ -189,7 +190,12 @@ class SaleOrder(models.Model):
             limit=1,
         )
         if existing:
-            return {"sale_order_id": existing.id, "name": existing.name, "duplicate": True}
+            return {
+                "sale_order_id": existing.id,
+                "name": existing.name,
+                "duplicate": True,
+                "print_url": "/report/pdf/%s/%s" % (QUOTATION_REPORT_NAME, existing.id),
+            }
         order = (
             self.sudo()
             .with_company(config.company_id)
@@ -208,4 +214,5 @@ class SaleOrder(models.Model):
             "name": order.name,
             "duplicate": False,
             "message": MANDOUB_QUOTATION_CREATED_MSG % order.name,
+            "print_url": "/report/pdf/%s/%s" % (QUOTATION_REPORT_NAME, order.id),
         }

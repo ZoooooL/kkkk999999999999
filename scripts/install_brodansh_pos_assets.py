@@ -162,10 +162,78 @@ def rewrite_asset_urls(client: OdooClient, attachments: list[dict]) -> None:
             print("ir.asset %s -> %s active=%s" % (assets, path, vals["active"]))
 
 
+def strip_esm_exports(source: str) -> str:
+    """odoo.define files are classic scripts; `export` inside them is a SyntaxError."""
+    return (
+        source.replace("export async function ", "async function ")
+        .replace("export function ", "function ")
+        .replace("export {", "const __mandoub_exports = {")
+    )
+
+
+def prepare_js_for_live(source: str) -> str:
+    return strip_esm_exports(source)
+
+
+def update_existing_attachments(client: OdooClient, module_dir: Path) -> list[str]:
+    """Rewrite already-imported POS assets. Zip re-import hits xmlid unique errors."""
+    log: list[str] = []
+    version = module_version(module_dir / "__manifest__.py")
+    mapping = {
+        "mandoub_quotation.js": ("text/javascript", True),
+        "mandoub_quotation.xml": ("application/xml", False),
+        "mandoub_quotation.scss": ("text/css", True),
+    }
+    for relative in STATIC_FILES:
+        src = module_dir / relative
+        filename = src.name
+        mimetype, active = mapping[filename]
+        content = src.read_bytes()
+        if filename.endswith(".js"):
+            content = prepare_js_for_live(content.decode("utf-8")).encode("utf-8")
+        attachments = client.execute(
+            "ir.attachment",
+            "search",
+            [
+                ("url", "ilike", "/%s/static/" % MODULE),
+                ("name", "=", filename),
+            ],
+        )
+        if not attachments:
+            log.append("No existing attachment for %s" % filename)
+            continue
+        client.execute(
+            "ir.attachment",
+            "write",
+            attachments,
+            {
+                "datas": base64.b64encode(content).decode("ascii"),
+                "mimetype": mimetype,
+                "public": True,
+            },
+        )
+        att = client.execute("ir.attachment", "read", attachments[:1], ["id"])[0]
+        path = "/web/content/%s/%s?v=%s" % (att["id"], filename, version)
+        assets = client.execute(
+            "ir.asset",
+            "search",
+            [("path", "ilike", filename), ("name", "ilike", MODULE)],
+        )
+        if assets:
+            client.execute("ir.asset", "write", assets, {"path": path, "active": active})
+        log.append("Updated attachment %s -> %s active=%s" % (attachments, path, active))
+    return log
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", default=str(ROOT / ".env"))
     parser.add_argument("--write-zip", default="")
+    parser.add_argument(
+        "--import-zip",
+        action="store_true",
+        help="Force zip import instead of updating existing attachments.",
+    )
     args = parser.parse_args()
     load_dotenv(Path(args.env_file))
     zip_bytes = build_assets_zip(ROOT / MODULE)
@@ -181,6 +249,16 @@ def main() -> None:
     )
     companies = client.execute("res.company", "search", [])
     client.context["allowed_company_ids"] = companies or [3]
+    existing = client.execute(
+        "ir.attachment",
+        "search",
+        [("url", "ilike", "/%s/static/" % MODULE)],
+        limit=1,
+    )
+    if existing and not args.import_zip:
+        for line in update_existing_attachments(client, ROOT / MODULE):
+            print(line)
+        return
     for line in import_assets(client, zip_bytes):
         print(line)
 

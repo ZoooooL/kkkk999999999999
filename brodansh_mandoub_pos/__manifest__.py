@@ -1,7 +1,7 @@
 {
     "name": "برودانش — جلسات المناديب وشاشة المطبخ",
     "summary": "المندوب ينشئ الطلب من نقطة البيع، والمدير يؤكد، والمخازن توصل، والحسابات تفوتر",
-    "version": "18.0.1.5.0",
+    "version": "18.0.1.6.0",
     "category": "Sales/Point of Sale",
     "author": "Brodansh",
     "license": "LGPL-3",
@@ -12,6 +12,7 @@
         "hr",
         "sale_management",
         "stock",
+        "account",
     ],
     "data": [
         "security/ir.model.access.csv",

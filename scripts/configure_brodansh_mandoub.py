@@ -29,8 +29,9 @@ from mandoub_setup import normalize_arabic_name  # noqa: E402
 
 POS_TO_SO_AUTOMATION_NAME = "مندوب: تحويل نقطة البيع إلى عرض سعر بدون فاتورة"
 CONFIRM_AUTOMATION_NAME = "مندوب: المدير فقط يؤكد الطلب"
-KITCHEN_CONFIRM_AUTOMATION_NAME = "مندوب: شاشة المطبخ — التوصيل"
-KITCHEN_DELIVERY_AUTOMATION_NAME = "مندوب: شاشة المطبخ — الفوترة"
+KITCHEN_CONFIRM_AUTOMATION_NAME = "مندوب: شاشة المطبخ — تم التأكيد"
+KITCHEN_DELIVERY_AUTOMATION_NAME = "مندوب: شاشة المطبخ — تم الشحن"
+KITCHEN_INVOICE_AUTOMATION_NAME = "مندوب: شاشة المطبخ — الفوترة"
 
 POS_TO_SO_CODE = """
 if env.context.get('mandoub_kitchen_shadow'):
@@ -134,7 +135,7 @@ else:
             new_cr.commit()
         finally:
             new_cr.close()
-        raise UserError('تم إنشاء الطلب %%s. يظهر في شاشة المطبخ بمرحلة التأكيد. المدير يؤكد ثم المخازن توصل ثم الحسابات تفوتر. اضغط طلب جديد.' %% so_name)
+        raise UserError('تم حفظ عرض السعر %%s وطباعته. يظهر في المطبخ كطلب. مدير المبيعات يؤكد (تم التأكيد) ثم المستودع يشحّن (تم الشحن) ثم الحسابات تفوتر. اضغط طلب جديد.' %% so_name)
 """ % {"prefix": MANDOUB_POS_PREFIX, "warehouse": FACTORY_WAREHOUSE_CODE}
 
 CONFIRM_CODE = """
@@ -169,6 +170,22 @@ if sale and origin.startswith('%s'):
             stages = env['pos_preparation_display.stage'].search([('preparation_display_id', '=', ost.preparation_display_id.id)], order='sequence, id')
             if len(stages) >= 3:
                 prep.change_order_stage(stages[2].id, ost.preparation_display_id.id)
+""" % MANDOUB_POS_PREFIX
+
+KITCHEN_INVOICE_CODE = """
+origin_ok = False
+sales = record.invoice_line_ids.mapped('sale_line_ids').mapped('order_id')
+for sale in sales:
+    origin = sale.origin or ''
+    if not origin.startswith('%s'):
+        continue
+    origin_ok = True
+    preps = env['pos_preparation_display.order'].search([('pdis_general_note', 'ilike', sale.name)])
+    for prep in preps:
+        for ost in prep.order_stage_ids:
+            stages = env['pos_preparation_display.stage'].search([('preparation_display_id', '=', ost.preparation_display_id.id)], order='sequence, id')
+            if len(stages) >= 4:
+                prep.change_order_stage(stages[3].id, ost.preparation_display_id.id)
 """ % MANDOUB_POS_PREFIX
 
 
@@ -518,6 +535,71 @@ def ensure_display(client: OdooClient, name: str, company_id: int, pos_ids: list
     return log
 
 
+def sync_all_mandoub_displays(client: OdooClient, company_id: int) -> list[str]:
+    """Rename/create the 4 kitchen stages on every mandoub display, including leftovers."""
+    log: list[str] = []
+    displays = client.execute(
+        "pos_preparation_display.display",
+        "search_read",
+        [("company_id", "=", company_id)],
+        fields=["id", "name"],
+    )
+    for row in displays:
+        name = row.get("name") or ""
+        if name != SHARED_KITCHEN_NAME and "مندوب" not in name:
+            continue
+        log.extend(sync_stages(client, row["id"]))
+        log.append("Updated display %s" % name)
+    return log
+
+
+def _rename_automations(client: OdooClient, domain: list, new_name: str) -> list[str]:
+    found = client.execute("base.automation", "search", domain)
+    if not found:
+        return []
+    client.execute("base.automation", "write", found, {"name": new_name})
+    autos = client.execute("base.automation", "read", found, ["action_server_ids"])
+    action_ids: list[int] = []
+    for row in autos:
+        action_ids.extend(row.get("action_server_ids") or [])
+    if action_ids:
+        client.execute("ir.actions.server", "write", action_ids, {"name": new_name})
+    return ["Renamed automation(s) %s -> %s" % (found, new_name)]
+
+
+def align_kitchen_automation_names(client: OdooClient) -> list[str]:
+    """Match live kitchen automations by model so leftover Arabic names get renamed."""
+    log: list[str] = []
+    sale_model = _model_id(client, "sale.order")
+    picking_model = _model_id(client, "stock.picking")
+    move_model = _model_id(client, "account.move")
+    log.extend(
+        _rename_automations(
+            client,
+            [
+                ("model_id", "=", sale_model),
+                ("name", "ilike", "شاشة المطبخ"),
+            ],
+            KITCHEN_CONFIRM_AUTOMATION_NAME,
+        )
+    )
+    log.extend(
+        _rename_automations(
+            client,
+            [("model_id", "=", picking_model), ("name", "ilike", "شاشة المطبخ")],
+            KITCHEN_DELIVERY_AUTOMATION_NAME,
+        )
+    )
+    log.extend(
+        _rename_automations(
+            client,
+            [("model_id", "=", move_model), ("name", "ilike", "شاشة المطبخ")],
+            KITCHEN_INVOICE_AUTOMATION_NAME,
+        )
+    )
+    return log
+
+
 def _model_id(client: OdooClient, model_name: str) -> int:
     rows = client.execute("ir.model", "search_read", [("model", "=", model_name)], fields=["id"])
     if not rows:
@@ -644,6 +726,7 @@ def apply_quotation_workflow(client: OdooClient, company_id: int, config_ids: li
             extra=extra,
         )
     )
+    log.extend(align_kitchen_automation_names(client))
     log.append(
         _ensure_code_automation(
             client,
@@ -681,8 +764,35 @@ def apply_quotation_workflow(client: OdooClient, company_id: int, config_ids: li
             extra=picking_extra,
         )
     )
-    log.append("Workflow: mandoub creates quotation → manager confirms → warehouse delivers → accounting invoices")
-    log.append("Kitchen: التأكيد → التوصيل → الفوترة")
+    invoice_extra = {"filter_domain": "[('state', '=', 'posted'), ('move_type', 'in', ['out_invoice', 'out_refund'])]"}
+    invoice_field = client.execute(
+        "ir.model.fields",
+        "search_read",
+        [("model", "=", "account.move"), ("name", "=", "state")],
+        fields=["id"],
+    )
+    if invoice_field:
+        invoice_extra["trigger_field_ids"] = [(6, 0, [invoice_field[0]["id"]])]
+        posted_sel = client.execute(
+            "ir.model.fields.selection",
+            "search_read",
+            [("field_id", "=", invoice_field[0]["id"]), ("value", "=", "posted")],
+            fields=["id"],
+        )
+        if posted_sel:
+            invoice_extra["trg_selection_field_id"] = posted_sel[0]["id"]
+    log.append(
+        _ensure_code_automation(
+            client,
+            KITCHEN_INVOICE_AUTOMATION_NAME,
+            "account.move",
+            "on_state_set",
+            KITCHEN_INVOICE_CODE,
+            extra=invoice_extra,
+        )
+    )
+    log.append("Workflow: حفظ و طباعة → طلب → تم التأكيد → تم الشحن → الفوترة")
+    log.append("Kitchen: طلب → تم التأكيد → تم الشحن → الفوترة")
     return log
 
 
@@ -713,7 +823,8 @@ def configure(client: OdooClient, company_id: int) -> list[str]:
                 [row["id"]],
             )
         )
-    log.append("Kitchen stages: التأكيد → التوصيل → الفوترة")
+    log.extend(sync_all_mandoub_displays(client, company_id))
+    log.append("Kitchen stages: طلب → تم التأكيد → تم الشحن → الفوترة")
     log.extend(apply_quotation_workflow(client, company_id, pos_ids))
     return log
 
@@ -722,6 +833,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Configure Brodansh mandoub POS + kitchen screens")
     parser.add_argument("--env-file", default=str(ROOT / ".env"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--kitchen-only",
+        action="store_true",
+        help="Update kitchen stages and automations without touching POS sessions.",
+    )
     return parser.parse_args()
 
 
@@ -734,7 +850,7 @@ def main() -> None:
         print("Kitchen stages:", ", ".join(spec["name"] for spec in stage_spec_list()))
         print("Shared display:", SHARED_KITCHEN_NAME)
         print("Cashier: each mandoub employee")
-        print("Flow: mandoub creates quotation → manager confirms → warehouse delivers → accounting invoices")
+        print("Flow: حفظ و طباعة → طلب → تم التأكيد → تم الشحن → الفوترة")
         print("Payment method (fallback only):", CREDIT_PAYMENT_NAME)
         return
 
@@ -748,6 +864,31 @@ def main() -> None:
     company_id = find_company_id(client, company_name)
     companies = client.execute("res.company", "search", [])
     client.set_company_ids(companies or [company_id])
+    if args.kitchen_only:
+        configs = client.execute(
+            "pos.config",
+            "search_read",
+            [("company_id", "=", company_id), ("active", "=", True)],
+            fields=["name"],
+        )
+        mandoub = [row for row in configs if is_mandoub_pos_name(row["name"])]
+        pos_ids = [row["id"] for row in mandoub]
+        logs = []
+        logs.extend(ensure_display(client, SHARED_KITCHEN_NAME, company_id, pos_ids))
+        for row in mandoub:
+            logs.extend(
+                ensure_display(
+                    client,
+                    kitchen_display_name_for_pos(row["name"]),
+                    company_id,
+                    [row["id"]],
+                )
+            )
+        logs.extend(sync_all_mandoub_displays(client, company_id))
+        logs.extend(apply_quotation_workflow(client, company_id, pos_ids))
+        for line in logs:
+            print(line)
+        return
     for line in configure(client, company_id):
         print(line)
 

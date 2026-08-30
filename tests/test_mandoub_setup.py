@@ -39,16 +39,20 @@ class MandoubSetupTests(unittest.TestCase):
             "شاشة مندوب — محمد صلاح",
         )
 
-    def test_stage_order_and_labels(self):
-        names = [row["name"] for row in stage_spec_list()]
-        self.assertEqual(names, ["التأكيد", "التوصيل", "الفوترة"])
-        sequences = [row["sequence"] for row in stage_spec_list()]
-        self.assertEqual(sequences, [1, 2, 3])
+    def test_kitchen_stage_names(self):
+        from mandoub_setup import MANDOUB_SAVE_PRINT_LABEL, stage_spec_list
+
+        self.assertEqual(
+            [row["name"] for row in stage_spec_list()],
+            ["طلب", "تم التأكيد", "تم الشحن", "الفوترة"],
+        )
+        self.assertEqual([row["sequence"] for row in stage_spec_list()], [1, 2, 3, 4])
+        self.assertEqual(MANDOUB_SAVE_PRINT_LABEL, "حفظ و طباعة")
 
     def test_stage_spec_is_copied(self):
         specs = stage_spec_list()
         specs[0]["name"] = "changed"
-        self.assertEqual(stage_spec_list()[0]["name"], "التأكيد")
+        self.assertEqual(stage_spec_list()[0]["name"], "طلب")
 
     def test_shared_overview_name(self):
         self.assertEqual(SHARED_KITCHEN_NAME, "مناديب")
@@ -130,8 +134,10 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertEqual(kitchen_stage_index("draft"), 0)
         self.assertEqual(kitchen_stage_index("sale"), 1)
         self.assertEqual(kitchen_stage_index("sale", delivery_done=True), 2)
-        self.assertEqual(kitchen_stage_index("draft", invoiced=True), 2)
-        self.assertIn("لا يفوتر", MANDOUB_QUOTATION_CREATED_MSG)
+        self.assertEqual(kitchen_stage_index("sale", delivery_done=True, invoiced=True), 3)
+        self.assertEqual(kitchen_stage_index("draft", invoiced=True), 3)
+        self.assertIn("حفظ", MANDOUB_QUOTATION_CREATED_MSG)
+        self.assertIn("المطبخ", MANDOUB_QUOTATION_CREATED_MSG)
         self.assertIn("المدير فقط", MANAGER_CONFIRM_ONLY_MSG)
         self.assertIn("%s", MANDOUB_QUOTATION_CREATED_MSG)
 
@@ -184,6 +190,18 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertFalse(is_finished_goods_category("برودان / منتج تام"))
         self.assertFalse(is_finished_goods_category("الاقمشة"))
         self.assertFalse(is_finished_goods_category(""))
+
+
+class MandoubFrontendAssetTests(unittest.TestCase):
+    def test_pos_js_is_classic_odoo_define_without_export(self):
+        js_path = ROOT / "brodansh_mandoub_pos" / "static" / "src" / "app" / "mandoub_quotation.js"
+        source = js_path.read_text(encoding="utf-8")
+        self.assertIn('odoo.define("brodansh_mandoub_pos.mandoub_quotation"', source)
+        self.assertNotIn("export function", source)
+        self.assertNotIn("export async function", source)
+        self.assertIn("حفظ و طباعة", source)
+        self.assertIn("printMandoubQuotationPdf", source)
+        self.assertIn("createMandoubQuotationViaOrm", source)
 
 
 if __name__ == "__main__":

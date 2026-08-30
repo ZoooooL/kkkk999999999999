@@ -8,15 +8,19 @@ CREDIT_PAYMENT_TERM_NAME = "30 يوماً"
 FACTORY_WAREHOUSE_CODE = "WH-MS"
 
 KITCHEN_STAGES = [
-    {"name": "التأكيد", "color": "#198754", "alert_timer": 15, "sequence": 1},
-    {"name": "التوصيل", "color": "#0d6efd", "alert_timer": 30, "sequence": 2},
-    {"name": "الفوترة", "color": "#6f42c1", "alert_timer": 10, "sequence": 3},
+    {"name": "طلب", "color": "#fd7e14", "alert_timer": 15, "sequence": 1},
+    {"name": "تم التأكيد", "color": "#198754", "alert_timer": 20, "sequence": 2},
+    {"name": "تم الشحن", "color": "#0d6efd", "alert_timer": 30, "sequence": 3},
+    {"name": "الفوترة", "color": "#6f42c1", "alert_timer": 10, "sequence": 4},
 ]
 KITCHEN_NOTE_PREFIX = "[طلب]"
+MANDOUB_SAVE_PRINT_LABEL = "حفظ و طباعة"
+QUOTATION_REPORT_XMLID = "sale.action_report_saleorder"
+QUOTATION_REPORT_NAME = "sale.report_saleorder"
 
 MANDOUB_QUOTATION_CREATED_MSG = (
-    "تم إنشاء الطلب %s. المندوب لا يفوتر ولا يستلم دفعاً. "
-    "المدير يؤكد، ثم المخازن توصل، ثم الحسابات تفوتر."
+    "تم حفظ عرض السعر %s وطباعته. يظهر في المطبخ كطلب. "
+    "مدير المبيعات يؤكد فيصبح أمر بيع (تم التأكيد)، ثم المستودع يشحّن (تم الشحن)، ثم الحسابات تفوتر."
 )
 MANAGER_CONFIRM_ONLY_MSG = (
     "المدير فقط يؤكد طلبات المناديب. بعد التأكيد المخازن توصل ثم الحسابات تفوتر."
@@ -118,8 +122,10 @@ def kitchen_card_note(so_name, partner_name="", salesperson_name=""):
 
 
 def kitchen_stage_index(order_state, delivery_done=False, invoiced=False):
-    """0=التأكيد, 1=التوصيل, 2=الفوترة"""
-    if invoiced or delivery_done:
+    """0=طلب, 1=تم التأكيد, 2=تم الشحن, 3=الفوترة"""
+    if invoiced:
+        return 3
+    if delivery_done:
         return 2
     if order_state == "sale":
         return 1

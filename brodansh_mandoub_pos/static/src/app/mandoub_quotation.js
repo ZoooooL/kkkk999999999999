@@ -5,6 +5,7 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
     "@point_of_sale/app/store/pos_store",
     "@point_of_sale/app/screens/payment_screen/payment_screen",
     "@point_of_sale/app/screens/product_screen/product_screen",
+    "@point_of_sale/app/screens/product_screen/action_pad/action_pad",
     "@point_of_sale/app/generic_components/product_card/product_card",
     "@odoo/owl",
 ], function (require) {
@@ -16,6 +17,8 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
     const { PosStore } = require("@point_of_sale/app/store/pos_store");
     const { PaymentScreen } = require("@point_of_sale/app/screens/payment_screen/payment_screen");
     const { ProductScreen } = require("@point_of_sale/app/screens/product_screen/product_screen");
+    const actionPadMod = require("@point_of_sale/app/screens/product_screen/action_pad/action_pad");
+    const ActionpadWidget = actionPadMod.ActionpadWidget || actionPadMod;
     const { ProductCard } = require("@point_of_sale/app/generic_components/product_card/product_card");
     const { onMounted, onPatched } = require("@odoo/owl");
 
@@ -36,7 +39,7 @@ function productValue(product, name) {
     return undefined;
 }
 
-export function collectPackQtys(product) {
+function collectPackQtys(product) {
     if (!product) {
         return [];
     }
@@ -65,7 +68,7 @@ export function collectPackQtys(product) {
     return qtys;
 }
 
-export function choosePackQty(packQtys, qtyOnHand = null, fallback = 12, alreadyInCart = 0) {
+function choosePackQty(packQtys, qtyOnHand = null, fallback = 12, alreadyInCart = 0) {
     const qtys = (packQtys || []).map(Number).filter((qty) => qty > 0);
     let remaining = null;
     if (qtyOnHand !== undefined && qtyOnHand !== null && qtyOnHand !== false) {
@@ -93,7 +96,7 @@ export function choosePackQty(packQtys, qtyOnHand = null, fallback = 12, already
     return Math.min(...qtys);
 }
 
-export function salesPackQty(product, fallback = 12, alreadyInCart = 0) {
+function salesPackQty(product, fallback = 12, alreadyInCart = 0) {
     if (!product) {
         return fallback;
     }
@@ -109,7 +112,7 @@ export function salesPackQty(product, fallback = 12, alreadyInCart = 0) {
     return choosePackQty(packQtys, onHand, fallback, alreadyInCart);
 }
 
-export function formatOnHandQty(qty, env) {
+function formatOnHandQty(qty, env) {
     if (qty === undefined || qty === null || qty === false) {
         return "";
     }
@@ -144,7 +147,7 @@ function cartQtyForProduct(pos, product) {
     return total;
 }
 
-export function isMandoubQuotationPos(pos) {
+function isMandoubQuotationPos(pos) {
     const config = pos?.config;
     if (!config) {
         return false;
@@ -169,7 +172,7 @@ function mandoubOrm(pos) {
     return pos.env?.services?.orm || pos.data?.orm;
 }
 
-export function applyMandoubStockToProduct(product, onHand, packQtys) {
+function applyMandoubStockToProduct(product, onHand, packQtys) {
     const qtys = (packQtys || []).map(Number).filter((qty) => qty > 0);
     const packStr = qtys.map((qty) => String(qty)).join(",");
     const packQty = choosePackQty(qtys, onHand);
@@ -197,7 +200,7 @@ async function resolveMandoubWarehouseId(pos, orm) {
     return found?.[0]?.id || false;
 }
 
-export async function loadMandoubWarehouseStock(pos) {
+async function loadMandoubWarehouseStock(pos) {
     if (!isMandoubQuotationPos(pos)) {
         return;
     }
@@ -246,7 +249,7 @@ export async function loadMandoubWarehouseStock(pos) {
     }
 }
 
-export function cartPayloadFromOrder(pos) {
+function cartPayloadFromOrder(pos) {
     const order = pos.get_order();
     const partner = order.get_partner ? order.get_partner() : order.partner_id;
     const lines = (order.get_orderlines ? order.get_orderlines() : order.lines) || [];
@@ -298,14 +301,120 @@ patch(PosStore.prototype, {
         return super.addProductToCurrentOrder(product, options);
     },
     async pay() {
-        if (isMandoubQuotationPos(this) && this.mandoubQuotationRpc !== false) {
-            try {
-                return await this.createMandoubQuotation();
-            } catch (_error) {
-                this.mandoubQuotationRpc = false;
-            }
+        if (isMandoubQuotationPos(this)) {
+            return this.createMandoubQuotation();
         }
         return super.pay(...arguments);
+    },
+    printMandoubQuotationPdf(orderId, printUrl) {
+        if (!orderId && !printUrl) {
+            return;
+        }
+        const url = printUrl || `/report/pdf/sale.report_saleorder/${orderId}`;
+        window.open(url, "_blank");
+    },
+    async createMandoubQuotationViaOrm(payload) {
+        const orm = mandoubOrm(this);
+        const companyId = recordId(this.config?.company_id);
+        let warehouseId = false;
+        let paymentTermId = false;
+        try {
+            warehouseId = await resolveMandoubWarehouseId(this, orm);
+        } catch (_error) {
+            warehouseId = false;
+        }
+        try {
+            const terms = await orm.searchRead(
+                "account.payment.term",
+                [
+                    ["name", "=", "30 يوماً"],
+                    ["company_id", "in", companyId ? [companyId, false] : [false]],
+                ],
+                ["id"]
+            );
+            paymentTermId = terms?.[0]?.id || false;
+        } catch (_error) {
+            paymentTermId = false;
+        }
+        const lines = (payload.lines || []).map((line, index) => [
+            0,
+            0,
+            {
+                sequence: (index + 1) * 10,
+                product_id: line.product_id,
+                product_uom_qty: line.qty,
+                price_unit: line.price_unit,
+                discount: line.discount || 0,
+                name: line.full_product_name || false,
+            },
+        ]);
+        const vals = {
+            partner_id: payload.partner_id,
+            origin: payload.origin,
+            client_order_ref: payload.uuid || false,
+            user_id: payload.user_id || false,
+            pricelist_id: payload.pricelist_id || false,
+            fiscal_position_id: payload.fiscal_position_id || false,
+            note: payload.note || false,
+            order_line: lines,
+        };
+        if (companyId) {
+            vals.company_id = companyId;
+        }
+        if (warehouseId) {
+            vals.warehouse_id = warehouseId;
+        }
+        if (paymentTermId) {
+            vals.payment_term_id = paymentTermId;
+        }
+        const created = await orm.create("sale.order", [vals]);
+        const orderId = Array.isArray(created) ? created[0] : created;
+        const [order] = await orm.read("sale.order", [orderId], ["name"]);
+        try {
+            const shadowCreated = await orm.create(
+                "pos.order",
+                [
+                    {
+                        session_id: payload.session_id,
+                        partner_id: payload.partner_id,
+                        amount_tax: 0,
+                        amount_total: 0,
+                        amount_paid: 0,
+                        amount_return: 0,
+                        state: "draft",
+                        to_invoice: false,
+                        general_note: `[طلب] | ${order.name}`,
+                        lines: (payload.lines || []).map((line) => [
+                            0,
+                            0,
+                            {
+                                product_id: line.product_id,
+                                qty: line.qty,
+                                price_unit: line.price_unit,
+                                price_subtotal: (line.price_unit || 0) * (line.qty || 0),
+                                price_subtotal_incl: (line.price_unit || 0) * (line.qty || 0),
+                                full_product_name: line.full_product_name || "",
+                            },
+                        ]),
+                    },
+                ],
+                { context: { mandoub_kitchen_shadow: true } }
+            );
+            const shadowId = Array.isArray(shadowCreated) ? shadowCreated[0] : shadowCreated;
+            await orm.call("pos_preparation_display.order", "process_order", [shadowId], {
+                context: { mandoub_kitchen_shadow: true },
+            });
+            await orm.call("pos.order", "action_pos_order_cancel", [[shadowId]], {
+                context: { mandoub_kitchen_shadow: true },
+            });
+        } catch (_error) {
+            console.warn("Mandoub kitchen card could not be created from POS", _error);
+        }
+        return {
+            sale_order_id: orderId,
+            name: order.name,
+            print_url: `/report/pdf/sale.report_saleorder/${orderId}`,
+        };
     },
     async createMandoubQuotation() {
         const order = this.get_order();
@@ -320,26 +429,36 @@ patch(PosStore.prototype, {
         if (!partner) {
             this.env.services.dialog.add(AlertDialog, {
                 title: _t("العميل مطلوب"),
-                body: _t("اختر العميل ثم اضغط إنشاء طلب. المندوب لا يفوتر."),
+                body: _t("اختر العميل ثم اضغط حفظ و طباعة."),
             });
             return;
         }
         const ui = this.env.services.ui;
         ui.block();
         try {
-            const result = await this.data.call("sale.order", "create_from_mandoub_pos", [
-                cartPayloadFromOrder(this),
-            ]);
+            const payload = cartPayloadFromOrder(this);
+            let result;
+            try {
+                result = await this.data.call("sale.order", "create_from_mandoub_pos", [payload]);
+            } catch (_error) {
+                result = await this.createMandoubQuotationViaOrm(payload);
+            }
+            this.printMandoubQuotationPdf(result.sale_order_id, result.print_url);
             this.removeOrder(order, false);
             this.add_new_order();
             this.env.services.dialog.add(AlertDialog, {
-                title: _t("تم إنشاء الطلب"),
+                title: _t("حفظ و طباعة"),
                 body:
                     result.message ||
                     _t(
-                        "تم إنشاء الطلب %s. المدير يؤكد، ثم المخازن توصل، ثم الحسابات تفوتر.",
+                        "تم حفظ عرض السعر %s وطباعته. يظهر في المطبخ كطلب. مدير المبيعات يؤكد ثم المستودع يشحّن ثم الحسابات تفوتر.",
                         result.name
                     ),
+            });
+        } catch (error) {
+            this.env.services.dialog.add(AlertDialog, {
+                title: _t("حفظ و طباعة"),
+                body: error?.data?.message || error?.message || String(error),
             });
         } finally {
             ui.unblock();
@@ -349,25 +468,99 @@ patch(PosStore.prototype, {
 
 patch(PaymentScreen.prototype, {
     async validateOrder(isForceValidate) {
-        if (isMandoubQuotationPos(this.pos) && this.pos.mandoubQuotationRpc !== false) {
-            try {
-                await this.pos.createMandoubQuotation();
-                this.pos.showScreen("ProductScreen");
-                return;
-            } catch (_error) {
-                this.pos.mandoubQuotationRpc = false;
-            }
+        if (isMandoubQuotationPos(this.pos)) {
+            await this.pos.createMandoubQuotation();
+            this.pos.showScreen("ProductScreen");
+            return;
         }
         return super.validateOrder(isForceValidate);
     },
 });
 
+function relabelMandoubPayButtons(root) {
+    const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+    const label = "حفظ و طباعة";
+    scope.querySelectorAll(".pay-order-button, .pay-button").forEach((button) => {
+        const titled =
+            button.querySelector("span.d-block, span.pay-name, .mandoub-pay-label") || null;
+        if (titled) {
+            if (titled.textContent !== label) {
+                titled.textContent = label;
+            }
+        } else {
+            let replaced = false;
+            button.childNodes.forEach((node) => {
+                if (node.nodeType === 3 && node.textContent.trim() && node.textContent.trim() !== label) {
+                    node.textContent = " " + label;
+                    replaced = true;
+                }
+            });
+            if (!replaced && !(button.textContent || "").includes(label)) {
+                let lab = button.querySelector(".mandoub-pay-label");
+                if (!lab) {
+                    lab = document.createElement("span");
+                    lab.className = "mandoub-pay-label";
+                    button.appendChild(lab);
+                }
+                lab.textContent = label;
+            }
+        }
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
+    });
+}
+
+function watchMandoubPayButtons(pos) {
+    if (!isMandoubQuotationPos(pos) || document.documentElement.dataset.mandoubPayWatch === "1") {
+        return;
+    }
+    document.documentElement.dataset.mandoubPayWatch = "1";
+    const apply = () => relabelMandoubPayButtons(document);
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(document.body, { childList: true, subtree: true });
+}
+
+patch(ActionpadWidget.prototype, {
+    setup() {
+        super.setup(...arguments);
+        onMounted(() => {
+            if (isMandoubQuotationPos(this.pos)) {
+                relabelMandoubPayButtons(this.el || this.__owl__?.bdom?.el || document);
+                watchMandoubPayButtons(this.pos);
+            }
+        });
+        onPatched(() => {
+            if (isMandoubQuotationPos(this.pos)) {
+                relabelMandoubPayButtons(this.el || this.__owl__?.bdom?.el || document);
+            }
+        });
+    },
+    get displayActionName() {
+        return isMandoubQuotationPos(this.pos) ? _t("حفظ و طباعة") : this.props.actionName;
+    },
+});
+
 patch(ProductScreen.prototype, {
+    setup() {
+        super.setup(...arguments);
+        onMounted(() => {
+            if (isMandoubQuotationPos(this.pos)) {
+                relabelMandoubPayButtons(this.el || this.__owl__?.bdom?.el || document);
+                watchMandoubPayButtons(this.pos);
+            }
+        });
+        onPatched(() => {
+            if (isMandoubQuotationPos(this.pos)) {
+                relabelMandoubPayButtons(this.el || this.__owl__?.bdom?.el || document);
+            }
+        });
+    },
     get mandoubPayLabel() {
-        return isMandoubQuotationPos(this.pos) ? _t("إنشاء طلب") : _t("Pay");
+        return isMandoubQuotationPos(this.pos) ? _t("حفظ و طباعة") : _t("Pay");
     },
     get mandoubPaymentLabel() {
-        return isMandoubQuotationPos(this.pos) ? _t("إنشاء طلب") : _t("Payment");
+        return isMandoubQuotationPos(this.pos) ? _t("حفظ و طباعة") : _t("Payment");
     },
 });
 

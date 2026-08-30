@@ -144,7 +144,7 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
                     % (config.name, cashier.name)
                 )
             else:
-                log.append("كاشير %s = %s، إنشاء طلب بدون فاتورة" % (config.name, cashier.name))
+                log.append("كاشير %s = %s، حفظ و طباعة بدون فاتورة" % (config.name, cashier.name))
 
     def _open_sessions(self, configs, users_by_config, log):
         Session = self.env["pos.session"]
@@ -222,9 +222,19 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
         self._ensure_display(SHARED_KITCHEN_NAME, configs, log)
         for config in configs:
             self._ensure_display(kitchen_display_name_for_pos(config.name), config, log)
+        leftovers = self.env["pos_preparation_display.display"].search(
+            [
+                ("company_id", "=", self.company_id.id),
+                "|",
+                ("name", "=", SHARED_KITCHEN_NAME),
+                ("name", "ilike", "مندوب"),
+            ]
+        )
+        for display in leftovers:
+            self._sync_stages(display, log)
         self._set_delivery_invoice_policy(log)
-        log.append("المراحل: التأكيد → التوصيل → الفوترة")
-        log.append("التدفق: المندوب ينشئ الطلب → المدير يؤكد → المخازن توصل → الحسابات تفوتر")
+        log.append("المراحل: طلب → تم التأكيد → تم الشحن → الفوترة")
+        log.append("التدفق: حفظ و طباعة → المدير يؤكد → المخازن تشحن → الحسابات تفوتر")
         return log
 
     def _set_delivery_invoice_policy(self, log):

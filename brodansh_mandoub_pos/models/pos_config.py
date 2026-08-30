@@ -13,9 +13,9 @@ class PosConfig(models.Model):
         store=False,
     )
     mandoub_quotation_mode = fields.Boolean(
-        string="المندوب ينشئ طلباً بدون فاتورة",
+        string="المندوب يحفظ ويطبع عرض سعر",
         default=False,
-        help="زر الدفع يصبح إنشاء عرض سعر. المدير يؤكد، المخازن توصل، الحسابات تفوتر.",
+        help="زر الدفع يصبح حفظ و طباعة: عرض سعر + PDF. المدير يؤكد، المخازن تشحن، الحسابات تفوتر.",
     )
 
     def _compute_is_mandoub_pos(self):
