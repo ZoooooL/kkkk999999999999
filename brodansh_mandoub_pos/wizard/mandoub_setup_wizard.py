@@ -2,6 +2,7 @@
 from odoo import fields, models
 
 from ..models.mandoub_setup import (
+    CREDIT_PAYMENT_NAME,
     SHARED_KITCHEN_NAME,
     is_mandoub_pos_name,
     kitchen_display_name_for_pos,
@@ -39,16 +40,104 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
         )
         return configs.filtered(lambda c: is_mandoub_pos_name(c.name))
 
-    def _open_sessions(self, configs, log):
+    def _cashier_employee(self, config, user=None):
+        user = user or config.current_user_id
+        if not user and config.current_session_id:
+            user = config.current_session_id.user_id
+        if not user:
+            return self.env["hr.employee"]
+        return self.env["hr.employee"].search(
+            [("user_id", "=", user.id), ("company_id", "=", self.company_id.id)],
+            limit=1,
+        )
+
+    def _close_empty_sessions(self, configs, log):
+        """Close empty sessions so payment methods can be changed."""
+        users_by_config = {}
+        for config in configs:
+            session = config.current_session_id
+            if session and session.user_id:
+                users_by_config[config.id] = session.user_id
+            if not session or session.state == "closed":
+                continue
+            if session.order_ids:
+                log.append("جلسة %s فيها طلبات؛ لن تُغلق." % session.display_name)
+                continue
+            session.action_pos_session_closing_control()
+            log.append("أُغلقت الجلسة الفارغة %s" % session.display_name)
+        return users_by_config
+
+    def _ensure_credit_payment(self):
+        Method = self.env["pos.payment.method"]
+        method = Method.search(
+            [
+                ("name", "=", CREDIT_PAYMENT_NAME),
+                ("company_id", "=", self.company_id.id),
+                ("type", "=", "pay_later"),
+            ],
+            limit=1,
+        )
+        if method:
+            method.write({"journal_id": False, "split_transactions": True})
+            return method
+        template = Method.search(
+            [("company_id", "=", self.company_id.id), ("journal_id", "!=", False)],
+            limit=1,
+        )
+        if template:
+            return template.copy(
+                {
+                    "name": CREDIT_PAYMENT_NAME,
+                    "journal_id": False,
+                    "split_transactions": True,
+                }
+            )
+        return Method.create(
+            {
+                "name": CREDIT_PAYMENT_NAME,
+                "company_id": self.company_id.id,
+                "split_transactions": True,
+            }
+        )
+
+    def _assign_cashier_and_credit(self, configs, users_by_config, log):
+        credit = self._ensure_credit_payment()
+        manager = self.env["hr.employee"].search(
+            [("user_id", "=", self.env.uid), ("company_id", "=", self.company_id.id)],
+            limit=1,
+        )
+        for config in configs:
+            user = users_by_config.get(config.id) or config.current_user_id
+            cashier = self._cashier_employee(config, user=user)
+            if not cashier:
+                log.append("لا يوجد موظف مربوط بنقطة البيع %s" % config.name)
+                continue
+            advanced = cashier
+            if manager:
+                advanced |= manager
+            config.write(
+                {
+                    "module_pos_hr": True,
+                    "basic_employee_ids": [(6, 0, cashier.ids)],
+                    "advanced_employee_ids": [(6, 0, advanced.ids)],
+                    "payment_method_ids": [(6, 0, credit.ids)],
+                }
+            )
+            log.append("كاشير %s = %s، الدفع = آجل" % (config.name, cashier.name))
+
+    def _open_sessions(self, configs, users_by_config, log):
         Session = self.env["pos.session"]
         now = fields.Datetime.now()
         for config in configs:
+            user = users_by_config.get(config.id) or config.current_user_id
+            cashier = self._cashier_employee(config, user=user)
             session = config.current_session_id
             if not session:
                 session = Session.create(
                     {
                         "config_id": config.id,
-                        "user_id": config.current_user_id.id or self.env.uid,
+                        "user_id": user.id if user else self.env.uid,
+                        "employee_id": cashier.id if cashier else False,
                     }
                 )
                 log.append("أنشئت جلسة لـ %s" % config.name)
@@ -57,9 +146,11 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
                 vals["state"] = "opened"
             if not session.start_at:
                 vals["start_at"] = now
+            if cashier:
+                vals["employee_id"] = cashier.id
             if vals:
                 session.write(vals)
-                log.append("فُتحت جلسة %s" % session.display_name)
+                log.append("فُتحت جلسة %s والكاشير %s" % (session.display_name, cashier.name if cashier else "-"))
 
     def _sync_stages(self, display, log):
         Stage = self.env["pos_preparation_display.stage"]
@@ -101,7 +192,9 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
         if not configs:
             return ["لا توجد نقاط بيع يبدأ اسمها بـ «مندوب —» في هذه الشركة."]
         log.append("عُثر على %s نقطة بيع للمناديب." % len(configs))
-        self._open_sessions(configs, log)
+        users_by_config = self._close_empty_sessions(configs, log)
+        self._assign_cashier_and_credit(configs, users_by_config, log)
+        self._open_sessions(configs, users_by_config, log)
         self._ensure_display(SHARED_KITCHEN_NAME, configs, log)
         for config in configs:
             self._ensure_display(kitchen_display_name_for_pos(config.name), config, log)

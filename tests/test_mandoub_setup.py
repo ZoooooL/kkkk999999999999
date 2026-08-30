@@ -6,7 +6,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "brodansh_mandoub_pos" / "models"))
 
 from mandoub_setup import (
+    CREDIT_PAYMENT_NAME,
     SHARED_KITCHEN_NAME,
+    credit_payment_vals,
     is_mandoub_pos_name,
     kitchen_display_name_for_pos,
     stage_spec_list,
@@ -39,6 +41,14 @@ class MandoubSetupTests(unittest.TestCase):
 
     def test_shared_overview_name(self):
         self.assertEqual(SHARED_KITCHEN_NAME, "مناديب")
+
+    def test_credit_payment_is_pay_later(self):
+        vals = credit_payment_vals(3)
+        self.assertEqual(vals["name"], CREDIT_PAYMENT_NAME)
+        self.assertEqual(CREDIT_PAYMENT_NAME, "آجل")
+        self.assertFalse(vals["journal_id"])
+        self.assertTrue(vals["split_transactions"])
+        self.assertEqual(vals["company_id"], 3)
 
 
 if __name__ == "__main__":

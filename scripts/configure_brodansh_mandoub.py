@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "brodansh_mandoub_pos" / "models"))
 
 from mandoub_setup import (  # noqa: E402
+    CREDIT_PAYMENT_NAME,
     SHARED_KITCHEN_NAME,
     is_mandoub_pos_name,
     kitchen_display_name_for_pos,
@@ -76,27 +77,160 @@ def find_company_id(client: OdooClient, company_name: str) -> int:
     return rows[0]["id"]
 
 
-def open_mandoub_sessions(client: OdooClient, configs: list[dict]) -> list[str]:
+def ensure_credit_payment(client: OdooClient, company_id: int) -> int:
+    rows = client.execute(
+        "pos.payment.method",
+        "search_read",
+        [("company_id", "=", company_id), ("name", "=", CREDIT_PAYMENT_NAME), ("type", "=", "pay_later")],
+        fields=["id", "name", "type", "split_transactions"],
+    )
+    if rows:
+        client.execute(
+            "pos.payment.method",
+            "write",
+            [rows[0]["id"]],
+            {"journal_id": False, "split_transactions": True},
+        )
+        return rows[0]["id"]
+    templates = client.execute(
+        "pos.payment.method",
+        "search_read",
+        [("company_id", "=", company_id), ("journal_id", "!=", False)],
+        fields=["id"],
+        limit=1,
+    )
+    if not templates:
+        raise SystemExit("No payment method template found to copy for آجل.")
+    copied = client.execute(
+        "pos.payment.method",
+        "copy",
+        [templates[0]["id"]],
+        default={"name": CREDIT_PAYMENT_NAME, "journal_id": False, "split_transactions": True},
+    )
+    method_id = copied[0] if isinstance(copied, list) else copied
+    client.execute(
+        "pos.payment.method",
+        "write",
+        [method_id],
+        {"name": CREDIT_PAYMENT_NAME, "journal_id": False, "split_transactions": True},
+    )
+    return method_id
+
+
+def employee_for_user(client: OdooClient, user_id: int, company_id: int) -> dict | None:
+    rows = client.execute(
+        "hr.employee",
+        "search_read",
+        [("user_id", "=", user_id), ("company_id", "=", company_id)],
+        fields=["name", "user_id"],
+        limit=1,
+    )
+    return rows[0] if rows else None
+
+
+def close_empty_sessions(client: OdooClient, configs: list[dict]) -> tuple[list[str], dict[int, int]]:
+    log: list[str] = []
+    users_by_config: dict[int, int] = {}
+    for config in configs:
+        if config.get("current_session_id"):
+            session = client.execute(
+                "pos.session",
+                "read",
+                [config["current_session_id"][0]],
+                fields=["name", "state", "user_id"],
+            )[0]
+            if session.get("user_id"):
+                users_by_config[config["id"]] = session["user_id"][0]
+            if session["state"] == "closed":
+                continue
+            orders = client.execute("pos.order", "search_count", [("session_id", "=", session["id"])])
+            if orders:
+                log.append("Skipped closing %s; it has orders." % session["name"])
+                continue
+            client.execute("pos.session", "action_pos_session_closing_control", [session["id"]])
+            log.append("Closed empty session %s" % session["name"])
+        elif config.get("current_user_id"):
+            users_by_config[config["id"]] = config["current_user_id"][0]
+    return log, users_by_config
+
+
+def assign_cashier_and_credit(
+    client: OdooClient,
+    configs: list[dict],
+    users_by_config: dict[int, int],
+    company_id: int,
+    manager_uid: int,
+) -> list[str]:
+    log: list[str] = []
+    credit_id = ensure_credit_payment(client, company_id)
+    manager = employee_for_user(client, manager_uid, company_id)
+    for config in configs:
+        user_id = users_by_config.get(config["id"])
+        if not user_id and config.get("current_user_id"):
+            user_id = config["current_user_id"][0]
+        cashier = employee_for_user(client, user_id, company_id) if user_id else None
+        if not cashier:
+            log.append("No employee linked to POS %s" % config["name"])
+            continue
+        advanced_ids = [cashier["id"]]
+        if manager and manager["id"] not in advanced_ids:
+            advanced_ids.append(manager["id"])
+        client.execute(
+            "pos.config",
+            "write",
+            [config["id"]],
+            {
+                "module_pos_hr": True,
+                "basic_employee_ids": [(6, 0, [cashier["id"]])],
+                "advanced_employee_ids": [(6, 0, advanced_ids)],
+                "payment_method_ids": [(6, 0, [credit_id])],
+            },
+        )
+        log.append("Cashier %s = %s, payment = آجل" % (config["name"], cashier["name"]))
+    return log
+
+
+def open_mandoub_sessions(
+    client: OdooClient,
+    configs: list[dict],
+    users_by_config: dict[int, int],
+    company_id: int,
+) -> list[str]:
     log: list[str] = []
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    session_ids = [c["current_session_id"][0] for c in configs if c.get("current_session_id")]
-    if not session_ids:
-        return ["No open/opening sessions found on mandoub POS configs."]
-    sessions = client.execute(
-        "pos.session",
-        "read",
-        session_ids,
-        fields=["name", "state", "start_at", "config_id"],
-    )
-    for session in sessions:
-        vals = {}
-        if session["state"] in ("new", "opening_control"):
-            vals["state"] = "opened"
-        if not session["start_at"]:
-            vals["start_at"] = now
-        if vals:
-            client.execute("pos.session", "write", [session["id"]], vals)
-            log.append("Opened session %s (was %s)" % (session["name"], session["state"]))
+    for config in configs:
+        user_id = users_by_config.get(config["id"])
+        cashier = employee_for_user(client, user_id, company_id) if user_id else None
+        refreshed = client.execute(
+            "pos.config",
+            "read",
+            [config["id"]],
+            fields=["current_session_id"],
+        )[0]
+        session_id = refreshed["current_session_id"][0] if refreshed.get("current_session_id") else None
+        if session_id:
+            state = client.execute("pos.session", "read", [session_id], fields=["state"])[0]["state"]
+            if state == "closed":
+                session_id = None
+        if not session_id:
+            vals = {
+                "config_id": config["id"],
+                "user_id": user_id or client.uid,
+            }
+            if cashier:
+                vals["employee_id"] = cashier["id"]
+            session_id = client.execute("pos.session", "create", vals)
+            log.append("Created session for %s" % config["name"])
+        write_vals = {"state": "opened", "start_at": now}
+        if cashier:
+            write_vals["employee_id"] = cashier["id"]
+        if user_id:
+            write_vals["user_id"] = user_id
+        client.execute("pos.session", "write", [session_id], write_vals)
+        log.append(
+            "Opened session for %s cashier=%s"
+            % (config["name"], cashier["name"] if cashier else "-")
+        )
     return log
 
 
@@ -166,13 +300,16 @@ def configure(client: OdooClient, company_id: int) -> list[str]:
         "pos.config",
         "search_read",
         [("company_id", "=", company_id), ("active", "=", True)],
-        fields=["name", "current_session_id", "current_session_state"],
+        fields=["name", "current_session_id", "current_session_state", "current_user_id"],
     )
     mandoub = [row for row in configs if is_mandoub_pos_name(row["name"])]
     if not mandoub:
         return ["No POS configs named «مندوب — …» were found."]
     log.append("Found %s mandoub POS configs." % len(mandoub))
-    log.extend(open_mandoub_sessions(client, mandoub))
+    close_log, users_by_config = close_empty_sessions(client, mandoub)
+    log.extend(close_log)
+    log.extend(assign_cashier_and_credit(client, mandoub, users_by_config, company_id, client.uid))
+    log.extend(open_mandoub_sessions(client, mandoub, users_by_config, company_id))
     pos_ids = [row["id"] for row in mandoub]
     log.extend(ensure_display(client, SHARED_KITCHEN_NAME, company_id, pos_ids))
     for row in mandoub:
@@ -203,6 +340,8 @@ def main() -> None:
         print("Dry run: would use company=%s" % company_name)
         print("Kitchen stages:", ", ".join(spec["name"] for spec in stage_spec_list()))
         print("Shared display:", SHARED_KITCHEN_NAME)
+        print("Cashier: each mandoub employee")
+        print("Payment method:", CREDIT_PAYMENT_NAME)
         return
 
     url = require_env("ODOO_URL")

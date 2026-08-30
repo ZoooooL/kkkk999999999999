@@ -3,6 +3,7 @@
 MANDOUB_POS_PREFIX = "مندوب —"
 KITCHEN_DISPLAY_PREFIX = "شاشة "
 SHARED_KITCHEN_NAME = "مناديب"
+CREDIT_PAYMENT_NAME = "آجل"
 
 KITCHEN_STAGES = [
     {"name": "مؤكد", "color": "#198754", "alert_timer": 15, "sequence": 1},
@@ -21,3 +22,13 @@ def kitchen_display_name_for_pos(pos_name):
 
 def stage_spec_list():
     return [dict(item) for item in KITCHEN_STAGES]
+
+
+def credit_payment_vals(company_id):
+    return {
+        "name": CREDIT_PAYMENT_NAME,
+        "company_id": company_id,
+        "journal_id": False,
+        "split_transactions": True,
+        "payment_method_type": "none",
+    }
