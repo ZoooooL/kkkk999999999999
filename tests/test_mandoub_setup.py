@@ -110,6 +110,14 @@ class MandoubQuotationTests(unittest.TestCase):
             quotation_vals_from_pos_cart({"partner_id": 1, "lines": []}, {})
         self.assertEqual(str(empty_cart.exception), "empty_cart")
 
+    def test_normalize_arabic_matches_kashida_names(self):
+        from mandoub_setup import normalize_arabic_name
+
+        self.assertIn(
+            normalize_arabic_name("عبدالمجيد"),
+            normalize_arabic_name("عبدالمجيــد 111"),
+        )
+
     def test_workflow_messages(self):
         self.assertIn("لا يفوتر", MANDOUB_QUOTATION_CREATED_MSG)
         self.assertIn("المدير فقط", MANAGER_CONFIRM_ONLY_MSG)

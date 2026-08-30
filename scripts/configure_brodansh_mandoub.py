@@ -24,6 +24,7 @@ from mandoub_setup import (  # noqa: E402
     kitchen_display_name_for_pos,
     stage_spec_list,
 )
+from mandoub_setup import normalize_arabic_name  # noqa: E402
 
 POS_TO_SO_AUTOMATION_NAME = "مندوب: تحويل نقطة البيع إلى عرض سعر بدون فاتورة"
 CONFIRM_AUTOMATION_NAME = "مندوب: المدير فقط يؤكد الطلب"
@@ -43,7 +44,7 @@ else:
     uuid = record.uuid or ''
     company = record.company_id
     warehouse = config.picking_type_id.warehouse_id
-    user = record.employee_id.user_id or record.user_id
+    user = record.employee_id.user_id or record.session_id.employee_id.user_id or record.session_id.user_id or record.user_id
     lines = []
     sequence = 10
     for line in record.lines:
@@ -64,8 +65,8 @@ else:
         raise UserError('أضف أصنافاً قبل إنشاء الطلب.')
     new_cr = record.env.registry.cursor()
     try:
-        new_env = record.env(cr=new_cr, su=True).with_company(company)
-        SaleOrder = new_env['sale.order']
+        new_env = record.env(cr=new_cr, su=True)
+        SaleOrder = new_env['sale.order'].with_company(company)
         so = False
         if uuid:
             so = SaleOrder.search([('client_order_ref', '=', uuid), ('company_id', '=', company.id)], limit=1)
@@ -200,6 +201,57 @@ def employee_for_user(client: OdooClient, user_id: int, company_id: int) -> dict
     return rows[0] if rows else None
 
 
+def _norm_ar(text: str) -> str:
+    return normalize_arabic_name(text)
+
+
+def employee_from_pos_name(client: OdooClient, pos_name: str, company_id: int, manager_uid: int) -> dict | None:
+    suffix = pos_name.split("—", 1)[-1].strip() if "—" in pos_name else pos_name
+    needle = _norm_ar(suffix)
+    if not needle:
+        return None
+    employees = client.execute(
+        "hr.employee",
+        "search_read",
+        [("company_id", "=", company_id), ("user_id", "!=", False)],
+        fields=["name", "user_id"],
+    )
+    scored = []
+    for emp in employees:
+        if emp.get("user_id") and emp["user_id"][0] == manager_uid:
+            continue
+        hay = _norm_ar(emp["name"])
+        if needle in hay or hay.startswith(needle.split()[0]):
+            scored.append(emp)
+    if len(scored) == 1:
+        return scored[0]
+    token = needle.split()[0]
+    token_hits = [emp for emp in scored if token and token in _norm_ar(emp["name"])]
+    if len(token_hits) == 1:
+        return token_hits[0]
+    return scored[0] if scored else None
+
+
+def cashier_for_config(
+    client: OdooClient,
+    config: dict,
+    users_by_config: dict[int, int],
+    company_id: int,
+    manager_uid: int,
+) -> tuple[dict | None, int | None]:
+    user_id = users_by_config.get(config["id"])
+    if user_id == manager_uid:
+        user_id = None
+    if not user_id and config.get("current_user_id") and config["current_user_id"][0] != manager_uid:
+        user_id = config["current_user_id"][0]
+    cashier = employee_for_user(client, user_id, company_id) if user_id else None
+    if cashier:
+        return cashier, user_id
+    cashier = employee_from_pos_name(client, config["name"], company_id, manager_uid)
+    user_id = cashier["user_id"][0] if cashier and cashier.get("user_id") else user_id
+    return cashier, user_id
+
+
 def close_empty_sessions(client: OdooClient, configs: list[dict]) -> tuple[list[str], dict[int, int]]:
     log: list[str] = []
     users_by_config: dict[int, int] = {}
@@ -237,10 +289,9 @@ def assign_cashier_and_credit(
     credit_id = ensure_credit_payment(client, company_id)
     manager = employee_for_user(client, manager_uid, company_id)
     for config in configs:
-        user_id = users_by_config.get(config["id"])
-        if not user_id and config.get("current_user_id"):
-            user_id = config["current_user_id"][0]
-        cashier = employee_for_user(client, user_id, company_id) if user_id else None
+        cashier, user_id = cashier_for_config(client, config, users_by_config, company_id, manager_uid)
+        if user_id:
+            users_by_config[config["id"]] = user_id
         if not cashier:
             log.append("No employee linked to POS %s" % config["name"])
             continue
@@ -271,8 +322,9 @@ def open_mandoub_sessions(
     log: list[str] = []
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     for config in configs:
-        user_id = users_by_config.get(config["id"])
-        cashier = employee_for_user(client, user_id, company_id) if user_id else None
+        cashier, user_id = cashier_for_config(client, config, users_by_config, company_id, client.uid)
+        if user_id:
+            users_by_config[config["id"]] = user_id
         refreshed = client.execute(
             "pos.config",
             "read",

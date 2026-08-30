@@ -29,6 +29,10 @@ def is_mandoub_pos_name(name):
     return bool(name) and name.startswith(MANDOUB_POS_PREFIX)
 
 
+def normalize_arabic_name(text):
+    return (text or "").replace("ـ", "").replace("  ", " ").strip()
+
+
 def kitchen_display_name_for_pos(pos_name):
     return "%s%s" % (KITCHEN_DISPLAY_PREFIX, pos_name)
 
