@@ -24,6 +24,24 @@ MANAGER_CONFIRM_ONLY_MSG = (
 POS_INVOICE_BLOCKED_MSG = (
     "نقطة بيع المندوب لا تُصدر فاتورة. أنشئ طلباً ليؤكده المدير."
 )
+DEFAULT_PACK_QTY = 12
+PACKAGING_NAME = "تعبئة 12"
+
+
+def normalize_cat_name(name):
+    return " ".join((name or "").replace("ـ", "").split())
+
+
+def default_pos_qty(packagings, fallback=DEFAULT_PACK_QTY):
+    """Qty to add on one POS click: smallest sales pack, else تعبئة 12."""
+    qtys = []
+    for pack in packagings or []:
+        if pack.get("sales") is False:
+            continue
+        qty = pack.get("qty")
+        if qty:
+            qtys.append(qty)
+    return min(qtys) if qtys else fallback
 
 
 def is_mandoub_pos_name(name):

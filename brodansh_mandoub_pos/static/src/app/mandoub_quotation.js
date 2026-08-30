@@ -9,6 +9,28 @@ import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product
 
 const MANDOUB_POS_PREFIX = "مندوب —";
 
+export function salesPackQty(product, fallback = 12) {
+    if (!product) {
+        return fallback;
+    }
+    if (product.mandoub_pack_qty) {
+        return Number(product.mandoub_pack_qty);
+    }
+    const packs = product.packaging_ids || product.packagings || [];
+    const qtys = [];
+    for (const pack of packs) {
+        const rec = pack && typeof pack === "object" ? pack : null;
+        if (!rec || rec.sales === false) {
+            continue;
+        }
+        const qty = Number(rec.qty);
+        if (qty > 0) {
+            qtys.push(qty);
+        }
+    }
+    return qtys.length ? Math.min(...qtys) : fallback;
+}
+
 export function isMandoubQuotationPos(pos) {
     const config = pos?.config;
     if (!config) {
@@ -60,6 +82,15 @@ export function cartPayloadFromOrder(pos) {
 patch(PosStore.prototype, {
     get isMandoubQuotationPos() {
         return isMandoubQuotationPos(this);
+    },
+    async addProductToCurrentOrder(product, options = {}) {
+        if (
+            isMandoubQuotationPos(this) &&
+            (options.quantity === undefined || options.quantity === null)
+        ) {
+            options = { ...options, quantity: salesPackQty(product) };
+        }
+        return super.addProductToCurrentOrder(product, options);
     },
     async pay() {
         if (isMandoubQuotationPos(this)) {

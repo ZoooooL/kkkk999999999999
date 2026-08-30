@@ -7,11 +7,13 @@ sys.path.insert(0, str(ROOT / "brodansh_mandoub_pos" / "models"))
 
 from mandoub_setup import (
     CREDIT_PAYMENT_NAME,
+    DEFAULT_PACK_QTY,
     MANAGER_CONFIRM_ONLY_MSG,
     MANDOUB_POS_PREFIX,
     MANDOUB_QUOTATION_CREATED_MSG,
     SHARED_KITCHEN_NAME,
     credit_payment_vals,
+    default_pos_qty,
     is_mandoub_origin,
     is_mandoub_pos_name,
     kitchen_card_note,
@@ -130,6 +132,20 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertIn("لا يفوتر", MANDOUB_QUOTATION_CREATED_MSG)
         self.assertIn("المدير فقط", MANAGER_CONFIRM_ONLY_MSG)
         self.assertIn("%s", MANDOUB_QUOTATION_CREATED_MSG)
+
+    def test_default_pos_qty_uses_smallest_sales_pack(self):
+        self.assertEqual(DEFAULT_PACK_QTY, 12)
+        self.assertEqual(default_pos_qty([]), 12)
+        self.assertEqual(
+            default_pos_qty(
+                [
+                    {"name": "PKG 24", "qty": 24, "sales": True},
+                    {"name": "تعبئة 12", "qty": 12, "sales": True},
+                    {"name": "شراء", "qty": 36, "sales": False},
+                ]
+            ),
+            12,
+        )
 
     def test_factory_warehouse_code(self):
         from mandoub_setup import FACTORY_WAREHOUSE_CODE
