@@ -127,7 +127,7 @@ def ensure_packaging(client: OdooClient, company_id: int) -> list[str]:
             "product.product",
             "search_read",
             [("product_tmpl_id", "in", chunk)],
-            fields=["id"],
+            fields=["id", "company_id"],
         )
         variant_ids = [row["id"] for row in variants]
         if not variant_ids:
@@ -139,21 +139,27 @@ def ensure_packaging(client: OdooClient, company_id: int) -> list[str]:
             fields=["product_id"],
         )
         have = {row["product_id"][0] for row in existing if row.get("product_id")}
-        for variant_id in variant_ids:
+        to_create = []
+        for variant in variants:
+            variant_id = variant["id"]
             if variant_id in have:
                 skipped += 1
                 continue
-            client.execute(
-                "product.packaging",
-                "create",
+            company = variant.get("company_id")
+            company_id_pack = company[0] if company else company_id
+            to_create.append(
                 {
                     "name": PACKAGING_NAME,
                     "qty": DEFAULT_PACK_QTY,
                     "product_id": variant_id,
                     "sales": True,
-                },
+                    "company_id": company_id_pack,
+                }
             )
-            created += 1
+        for offset in range(0, len(to_create), 40):
+            batch = to_create[offset : offset + 40]
+            client.execute("product.packaging", "create", batch)
+            created += len(batch)
     log.append("Created %s «%s» packs; %s variants already had sales packaging." % (created, PACKAGING_NAME, skipped))
     return log
 
