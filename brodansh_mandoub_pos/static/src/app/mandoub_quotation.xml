@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="brodansh_mandoub_pos.ProductScreen" t-inherit="point_of_sale.ProductScreen" t-inherit-mode="extension">
+        <xpath expr="//ActionpadWidget" position="attributes">
+            <attribute name="actionName.bind">mandoubPaymentLabel</attribute>
+        </xpath>
+        <xpath expr="//button[hasclass('pay-button')]/span[1]" position="replace">
+            <span class="d-block" t-esc="mandoubPayLabel"/>
+        </xpath>
+    </t>
+    <t t-name="brodansh_mandoub_pos.ProductCard" t-inherit="point_of_sale.ProductCard" t-inherit-mode="extension">
+        <xpath expr="//article[hasclass('product')]" position="inside">
+            <span t-if="mandoubShowQtyOnHand"
+                  t-attf-class="mandoub-qty-on-hand #{mandoubIsOutOfStock ? 'mandoub-qty-zero' : ''}"
+                  t-esc="mandoubQtyOnHandLabel"/>
+        </xpath>
+    </t>
+</templates>
