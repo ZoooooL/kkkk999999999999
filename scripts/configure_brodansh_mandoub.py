@@ -557,13 +557,27 @@ def _rename_automations(client: OdooClient, domain: list, new_name: str) -> list
     found = client.execute("base.automation", "search", domain)
     if not found:
         return []
-    client.execute("base.automation", "write", found, {"name": new_name})
+    for lang in ("ar_001", "en_US"):
+        client.execute(
+            "base.automation",
+            "write",
+            found,
+            {"name": new_name},
+            context={"lang": lang},
+        )
     autos = client.execute("base.automation", "read", found, ["action_server_ids"])
     action_ids: list[int] = []
     for row in autos:
         action_ids.extend(row.get("action_server_ids") or [])
     if action_ids:
-        client.execute("ir.actions.server", "write", action_ids, {"name": new_name})
+        for lang in ("ar_001", "en_US"):
+            client.execute(
+                "ir.actions.server",
+                "write",
+                action_ids,
+                {"name": new_name},
+                context={"lang": lang},
+            )
     return ["Renamed automation(s) %s -> %s" % (found, new_name)]
 
 
@@ -632,10 +646,24 @@ def _ensure_code_automation(
         vals.update(extra)
     if existing:
         auto_id = existing[0]["id"]
-        client.execute("base.automation", "write", [auto_id], vals)
+        for lang in ("ar_001", "en_US"):
+            client.execute(
+                "base.automation",
+                "write",
+                [auto_id],
+                vals,
+                context={"lang": lang},
+            )
         action_ids = existing[0].get("action_server_ids") or []
         if action_ids:
-            client.execute("ir.actions.server", "write", action_ids, {"state": "code", "code": code, "name": name})
+            for lang in ("ar_001", "en_US"):
+                client.execute(
+                    "ir.actions.server",
+                    "write",
+                    action_ids,
+                    {"state": "code", "code": code, "name": name},
+                    context={"lang": lang},
+                )
         else:
             action_id = client.execute(
                 "ir.actions.server",
