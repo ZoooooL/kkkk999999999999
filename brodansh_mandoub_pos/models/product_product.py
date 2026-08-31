@@ -10,7 +10,7 @@ class ProductProduct(models.Model):
     mandoub_pack_qty = fields.Float(
         string="كمية التعبئة في نقطة البيع",
         compute="_compute_mandoub_pos_pack",
-        help="ضغطة واحدة في نقطة بيع المندوب تضيف أكبر تعبئة تناسب الكمية في اليد.",
+        help="ضغطة واحدة = تعبئة واحدة. 3 على لوحة الكمية × تعبئة 24 = 72.",
     )
     mandoub_qty_on_hand = fields.Float(
         string="الكمية في اليد",

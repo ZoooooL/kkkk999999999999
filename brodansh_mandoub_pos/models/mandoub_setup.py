@@ -61,43 +61,31 @@ def sales_pack_qtys(packagings):
     return qtys
 
 
-def choose_pack_qty(pack_qtys, qty_on_hand=None, fallback=DEFAULT_PACK_QTY, already_in_cart=0):
-    """Qty to add on one POS click.
-
-    If the product has several sales packs (12 / 24 / 36), pick the largest pack
-    that still fits in remaining qty on hand. Unknown stock keeps the smallest
-    pack so a click does not oversell. Leftover below the smallest pack is added
-    as-is. Empty stock still uses the smallest pack so a quotation can be created.
-    """
+def pack_unit_qty(pack_qtys, fallback=DEFAULT_PACK_QTY):
+    """One wholesale pack: the product's sales packaging, or 12 if none."""
     qtys = [qty for qty in (pack_qtys or []) if qty]
-    remaining = None
-    if qty_on_hand is not None:
-        try:
-            remaining = float(qty_on_hand) - float(already_in_cart or 0)
-        except (TypeError, ValueError):
-            remaining = None
-    if not qtys:
-        if remaining is not None and 0 < remaining < fallback:
-            return remaining
-        return fallback
-    if remaining is None:
-        return min(qtys)
-    fitting = [qty for qty in qtys if qty <= remaining]
-    if fitting:
-        return max(fitting)
-    if remaining > 0:
-        return remaining
-    return min(qtys)
+    return min(qtys) if qtys else fallback
+
+
+def wholesale_line_qty(pack_qtys, pack_count=1, fallback=DEFAULT_PACK_QTY):
+    """Numpad packs × packaging. 1 → 24, 3 × 24 → 72."""
+    try:
+        count = float(pack_count if pack_count not in (None, False, "") else 1)
+    except (TypeError, ValueError):
+        count = 1
+    if count <= 0:
+        count = 1
+    return pack_unit_qty(pack_qtys, fallback=fallback) * count
+
+
+def choose_pack_qty(pack_qtys, qty_on_hand=None, fallback=DEFAULT_PACK_QTY, already_in_cart=0):
+    """Qty for one POS pack. Numpad count is applied by wholesale_line_qty."""
+    return pack_unit_qty(pack_qtys, fallback=fallback)
 
 
 def default_pos_qty(packagings, qty_on_hand=None, fallback=DEFAULT_PACK_QTY, already_in_cart=0):
-    """Qty to add on one POS click from packaging records and warehouse stock."""
-    return choose_pack_qty(
-        sales_pack_qtys(packagings),
-        qty_on_hand=qty_on_hand,
-        fallback=fallback,
-        already_in_cart=already_in_cart,
-    )
+    """Qty to add for one pack from packaging records."""
+    return pack_unit_qty(sales_pack_qtys(packagings), fallback=fallback)
 
 
 def is_mandoub_pos_name(name):

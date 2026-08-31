@@ -141,7 +141,18 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertIn("المدير فقط", MANAGER_CONFIRM_ONLY_MSG)
         self.assertIn("%s", MANDOUB_QUOTATION_CREATED_MSG)
 
-    def test_default_pos_qty_uses_smallest_sales_pack_when_stock_unknown(self):
+    def test_wholesale_pack_count_multiplies_packaging(self):
+        from mandoub_setup import pack_unit_qty, wholesale_line_qty
+
+        self.assertEqual(pack_unit_qty([24]), 24)
+        self.assertEqual(wholesale_line_qty([24], 1), 24)
+        self.assertEqual(wholesale_line_qty([24], 3), 72)
+        self.assertEqual(wholesale_line_qty([12, 24, 36], 1), 12)
+        self.assertEqual(wholesale_line_qty([12, 24, 36], 3), 36)
+        self.assertEqual(wholesale_line_qty([], 1), 12)
+        self.assertEqual(default_pos_qty([{"qty": 24, "sales": True}]), 24)
+
+    def test_default_pos_qty_uses_smallest_sales_pack(self):
         self.assertEqual(DEFAULT_PACK_QTY, 12)
         self.assertEqual(default_pos_qty([]), 12)
         self.assertEqual(
@@ -155,24 +166,7 @@ class MandoubQuotationTests(unittest.TestCase):
             12,
         )
         self.assertEqual(sales_pack_qtys([{"qty": 12, "sales": True}, {"qty": 24, "sales": False}]), [12])
-
-    def test_default_pos_qty_picks_largest_pack_that_fits_on_hand(self):
-        packs = [
-            {"qty": 12, "sales": True},
-            {"qty": 24, "sales": True},
-            {"qty": 36, "sales": True},
-        ]
-        self.assertEqual(default_pos_qty(packs, qty_on_hand=40), 36)
-        self.assertEqual(default_pos_qty(packs, qty_on_hand=36), 36)
-        self.assertEqual(default_pos_qty(packs, qty_on_hand=30), 24)
-        self.assertEqual(default_pos_qty(packs, qty_on_hand=20), 12)
-        self.assertEqual(default_pos_qty(packs, qty_on_hand=5), 5)
-        self.assertEqual(default_pos_qty(packs, qty_on_hand=0), 12)
-        self.assertEqual(default_pos_qty([{"qty": 12, "sales": True}], qty_on_hand=100), 12)
-
-    def test_choose_pack_qty_subtracts_cart_qty(self):
-        self.assertEqual(choose_pack_qty([12, 24, 36], qty_on_hand=40, already_in_cart=36), 4)
-        self.assertEqual(choose_pack_qty([12, 24, 36], qty_on_hand=40, already_in_cart=40), 12)
+        self.assertEqual(choose_pack_qty([12, 24, 36], qty_on_hand=40), 12)
 
     def test_factory_warehouse_code(self):
         from mandoub_setup import FACTORY_WAREHOUSE_CODE
@@ -202,6 +196,9 @@ class MandoubFrontendAssetTests(unittest.TestCase):
         self.assertIn("حفظ و طباعة", source)
         self.assertIn("printMandoubQuotationPdf", source)
         self.assertIn("createMandoubQuotationViaOrm", source)
+        self.assertIn("addLineToCurrentOrder", source)
+        self.assertIn("mandoub-out-of-stock", source)
+        self.assertIn("wholesaleLineQty", source)
 
 
 if __name__ == "__main__":
