@@ -157,6 +157,15 @@ class MandoubQuotationTests(unittest.TestCase):
     def test_kitchen_card_note_and_stages(self):
         self.assertIn("S0001", kitchen_card_note("S0001", "عميل", "مندوب"))
         self.assertTrue(kitchen_card_note("S0001").startswith("[طلب]"))
+        from mandoub_setup import parse_kitchen_card_note
+
+        parsed = parse_kitchen_card_note(
+            "[طلب] | S08824 |  شركة رعاية الطبية - مستشفى الملز  | محمد صلاح"
+        )
+        self.assertEqual(parsed["so_name"], "S08824")
+        self.assertIn("رعاية الطبية", parsed["partner_name"])
+        self.assertEqual(parsed["salesperson_name"], "محمد صلاح")
+        self.assertEqual(parse_kitchen_card_note(""), {"so_name": "", "partner_name": "", "salesperson_name": ""})
         self.assertEqual(kitchen_stage_index("draft"), 0)
         self.assertEqual(kitchen_stage_index("sale"), 1)
         self.assertEqual(kitchen_stage_index("sale", delivery_done=True), 2)
@@ -256,6 +265,22 @@ class MandoubFrontendAssetTests(unittest.TestCase):
         self.assertIn("mandoubQuotationFormUrl", source)
         self.assertIn("mandoub-out-of-stock", source)
         self.assertIn("wholesaleLineQty", source)
+
+    def test_kitchen_js_opens_sale_order_and_hides_products(self):
+        js_path = ROOT / "brodansh_mandoub_pos" / "static" / "src" / "kitchen" / "mandoub_kitchen.js"
+        source = js_path.read_text(encoding="utf-8")
+        self.assertIn('odoo.define("brodansh_mandoub_pos.mandoub_kitchen"', source)
+        self.assertNotIn("export function", source)
+        self.assertIn("parseKitchenCardNote", source)
+        self.assertIn("openMandoubSaleOrder", source)
+        self.assertIn("/web#model=sale.order", source)
+        self.assertIn("getSortedOrderlines", source)
+        scss = (ROOT / "brodansh_mandoub_pos" / "static" / "src" / "kitchen" / "mandoub_kitchen.scss").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(".o_pdis_orderline", scss)
+        self.assertIn("display: none", scss)
+        self.assertIn(".o_pdis_staff", scss)
 
 
 if __name__ == "__main__":

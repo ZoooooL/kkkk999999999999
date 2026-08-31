@@ -19,11 +19,39 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = "brodansh_mandoub_pos"
-STATIC_FILES = [
-    "static/src/app/mandoub_quotation.js",
-    "static/src/app/mandoub_quotation.xml",
-    "static/src/app/mandoub_quotation.scss",
+ASSET_FILES = [
+    {
+        "relative": "static/src/app/mandoub_quotation.js",
+        "bundle": "point_of_sale._assets_pos",
+        "mimetype": "text/javascript",
+        "active": True,
+    },
+    {
+        "relative": "static/src/app/mandoub_quotation.xml",
+        "bundle": "point_of_sale._assets_pos",
+        "mimetype": "application/xml",
+        "active": False,
+    },
+    {
+        "relative": "static/src/app/mandoub_quotation.scss",
+        "bundle": "point_of_sale._assets_pos",
+        "mimetype": "text/css",
+        "active": True,
+    },
+    {
+        "relative": "static/src/kitchen/mandoub_kitchen.js",
+        "bundle": "pos_preparation_display.assets",
+        "mimetype": "text/javascript",
+        "active": True,
+    },
+    {
+        "relative": "static/src/kitchen/mandoub_kitchen.scss",
+        "bundle": "pos_preparation_display.assets",
+        "mimetype": "text/css",
+        "active": True,
+    },
 ]
+STATIC_FILES = [row["relative"] for row in ASSET_FILES]
 
 
 def load_dotenv(path: Path) -> None:
@@ -62,6 +90,10 @@ def build_assets_zip(module_dir: Path) -> bytes:
             "brodansh_mandoub_pos/static/src/app/mandoub_quotation.js",
             "brodansh_mandoub_pos/static/src/app/mandoub_quotation.xml",
             "brodansh_mandoub_pos/static/src/app/mandoub_quotation.scss",
+        ],
+        "pos_preparation_display.assets": [
+            "brodansh_mandoub_pos/static/src/kitchen/mandoub_kitchen.js",
+            "brodansh_mandoub_pos/static/src/kitchen/mandoub_kitchen.scss",
         ],
     },
     "installable": True,
@@ -138,18 +170,14 @@ def import_assets(client: OdooClient, zip_bytes: bytes) -> list[str]:
 
 
 def rewrite_asset_urls(client: OdooClient, attachments: list[dict]) -> None:
-    """Serve imported files via /web/content so POS can load them with a session."""
+    """Serve imported files via /web/content so POS/kitchen can load them with a session."""
     by_name = {row["name"]: row for row in attachments}
-    mapping = {
-        "mandoub_quotation.js": "text/javascript",
-        "mandoub_quotation.xml": "application/xml",
-        "mandoub_quotation.scss": "text/css",
-    }
-    for filename, mimetype in mapping.items():
+    for spec in ASSET_FILES:
+        filename = Path(spec["relative"]).name
         att = by_name.get(filename)
         if not att:
             continue
-        client.execute("ir.attachment", "write", [att["id"]], {"mimetype": mimetype, "public": True})
+        client.execute("ir.attachment", "write", [att["id"]], {"mimetype": spec["mimetype"], "public": True})
         path = "/web/content/%s/%s" % (att["id"], filename)
         assets = client.execute(
             "ir.asset",
@@ -157,7 +185,7 @@ def rewrite_asset_urls(client: OdooClient, attachments: list[dict]) -> None:
             [("path", "ilike", filename), ("name", "ilike", MODULE)],
         )
         if assets:
-            vals = {"path": path, "active": filename != "mandoub_quotation.xml"}
+            vals = {"path": path, "active": spec["active"], "bundle": spec["bundle"]}
             client.execute("ir.asset", "write", assets, vals)
             print("ir.asset %s -> %s active=%s" % (assets, path, vals["active"]))
 
@@ -175,53 +203,77 @@ def prepare_js_for_live(source: str) -> str:
     return strip_esm_exports(source)
 
 
+def upsert_static_asset(client: OdooClient, module_dir: Path, spec: dict, version: str) -> str:
+    src = module_dir / spec["relative"]
+    filename = src.name
+    content = src.read_bytes()
+    if filename.endswith(".js"):
+        content = prepare_js_for_live(content.decode("utf-8")).encode("utf-8")
+    url = "/%s/%s" % (MODULE, spec["relative"])
+    attachments = client.execute(
+        "ir.attachment",
+        "search",
+        [
+            "|",
+            ("url", "=", url),
+            "&",
+            ("url", "ilike", "/%s/static/" % MODULE),
+            ("name", "=", filename),
+        ],
+    )
+    vals = {
+        "name": filename,
+        "type": "binary",
+        "datas": base64.b64encode(content).decode("ascii"),
+        "mimetype": spec["mimetype"],
+        "public": True,
+        "url": url,
+    }
+    if attachments:
+        client.execute("ir.attachment", "write", attachments, vals)
+        att_id = attachments[0]
+    else:
+        att_id = client.execute("ir.attachment", "create", vals)
+    path = "/web/content/%s/%s?v=%s" % (att_id, filename, version)
+    assets = client.execute(
+        "ir.asset",
+        "search",
+        [
+            ("bundle", "=", spec["bundle"]),
+            "|",
+            ("path", "ilike", filename),
+            ("name", "ilike", filename),
+        ],
+    )
+    asset_vals = {
+        "name": "%s.%s.%s" % (MODULE, spec["bundle"], spec["relative"]),
+        "bundle": spec["bundle"],
+        "path": path,
+        "active": spec["active"],
+        "directive": "append",
+    }
+    if assets:
+        client.execute("ir.asset", "write", assets, asset_vals)
+    else:
+        client.execute("ir.asset", "create", asset_vals)
+    return "Asset %s -> %s active=%s" % (filename, path, spec["active"])
+
+
+def clear_compiled_bundle(client: OdooClient, bundle: str) -> str:
+    found = client.execute("ir.attachment", "search", [("name", "ilike", bundle)])
+    if found:
+        client.execute("ir.attachment", "unlink", found)
+        return "Cleared compiled %s attachments %s" % (bundle, found)
+    return "No compiled %s attachments" % bundle
+
+
 def update_existing_attachments(client: OdooClient, module_dir: Path) -> list[str]:
-    """Rewrite already-imported POS assets. Zip re-import hits xmlid unique errors."""
+    """Rewrite already-imported POS/kitchen assets. Zip re-import hits xmlid unique errors."""
     log: list[str] = []
     version = module_version(module_dir / "__manifest__.py")
-    mapping = {
-        "mandoub_quotation.js": ("text/javascript", True),
-        "mandoub_quotation.xml": ("application/xml", False),
-        "mandoub_quotation.scss": ("text/css", True),
-    }
-    for relative in STATIC_FILES:
-        src = module_dir / relative
-        filename = src.name
-        mimetype, active = mapping[filename]
-        content = src.read_bytes()
-        if filename.endswith(".js"):
-            content = prepare_js_for_live(content.decode("utf-8")).encode("utf-8")
-        attachments = client.execute(
-            "ir.attachment",
-            "search",
-            [
-                ("url", "ilike", "/%s/static/" % MODULE),
-                ("name", "=", filename),
-            ],
-        )
-        if not attachments:
-            log.append("No existing attachment for %s" % filename)
-            continue
-        client.execute(
-            "ir.attachment",
-            "write",
-            attachments,
-            {
-                "datas": base64.b64encode(content).decode("ascii"),
-                "mimetype": mimetype,
-                "public": True,
-            },
-        )
-        att = client.execute("ir.attachment", "read", attachments[:1], ["id"])[0]
-        path = "/web/content/%s/%s?v=%s" % (att["id"], filename, version)
-        assets = client.execute(
-            "ir.asset",
-            "search",
-            [("path", "ilike", filename), ("name", "ilike", MODULE)],
-        )
-        if assets:
-            client.execute("ir.asset", "write", assets, {"path": path, "active": active})
-        log.append("Updated attachment %s -> %s active=%s" % (attachments, path, active))
+    for spec in ASSET_FILES:
+        log.append(upsert_static_asset(client, module_dir, spec, version))
+    log.append(clear_compiled_bundle(client, "pos_preparation_display.assets"))
     return log
 
 

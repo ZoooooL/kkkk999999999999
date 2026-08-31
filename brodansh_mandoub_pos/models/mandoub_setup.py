@@ -218,6 +218,22 @@ def kitchen_card_note(so_name, partner_name="", salesperson_name=""):
     return " | ".join(parts)
 
 
+def parse_kitchen_card_note(note):
+    """Split «[طلب] | S08824 | عميل | مندوب» into sale order, customer, cashier."""
+    text = (note or "").replace("\n", " ").strip()
+    parts = [part.strip() for part in text.split("|") if part.strip()]
+    if parts and parts[0].startswith("["):
+        parts = parts[1:]
+    so_name = parts[0] if parts else ""
+    partner_name = parts[1] if len(parts) > 1 else ""
+    salesperson_name = parts[2] if len(parts) > 2 else ""
+    return {
+        "so_name": so_name,
+        "partner_name": partner_name,
+        "salesperson_name": salesperson_name,
+    }
+
+
 def kitchen_stage_index(order_state, delivery_done=False, invoiced=False):
     """0=طلب, 1=تم التأكيد, 2=تم الشحن, 3=الفوترة"""
     if invoiced:

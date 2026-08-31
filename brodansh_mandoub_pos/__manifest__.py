@@ -1,7 +1,7 @@
 {
     "name": "برودانش — جلسات المناديب وشاشة المطبخ",
     "summary": "المندوب ينشئ الطلب من نقطة البيع، والمدير يؤكد، والمخازن توصل، والحسابات تفوتر",
-    "version": "18.0.1.8.0",
+    "version": "18.0.1.9.0",
     "category": "Sales/Point of Sale",
     "author": "Brodansh",
     "license": "LGPL-3",
@@ -23,6 +23,10 @@
             "brodansh_mandoub_pos/static/src/app/mandoub_quotation.js",
             "brodansh_mandoub_pos/static/src/app/mandoub_quotation.xml",
             "brodansh_mandoub_pos/static/src/app/mandoub_quotation.scss",
+        ],
+        "pos_preparation_display.assets": [
+            "brodansh_mandoub_pos/static/src/kitchen/mandoub_kitchen.js",
+            "brodansh_mandoub_pos/static/src/kitchen/mandoub_kitchen.scss",
         ],
     },
     "installable": True,
