@@ -169,6 +169,12 @@ def quotation_line_command(line, sequence):
     qty = line.get("qty")
     if qty in (None, False):
         qty = line.get("product_uom_qty") or line.get("quantity") or 0
+    pack_qty = line.get("pack_qty")
+    carton_qty = line.get("carton_qty")
+    if carton_qty in (None, False):
+        carton_qty = qty
+    if pack_qty:
+        qty = wholesale_line_qty([pack_qty], carton_qty, pack_qty)
     price = line.get("price_unit")
     if price in (None, False):
         price = line.get("price") or 0
@@ -181,6 +187,12 @@ def quotation_line_command(line, sequence):
         "discount": discount,
     }
     name = line.get("full_product_name") or line.get("customer_note")
+    if pack_qty and carton_qty not in (None, False):
+        extra = "%s كرتون × %s" % (
+            int(carton_qty) if float(carton_qty).is_integer() else carton_qty,
+            int(pack_qty) if float(pack_qty).is_integer() else pack_qty,
+        )
+        name = ("%s — %s" % (name, extra)) if name else extra
     if name:
         vals["name"] = name
     return (0, 0, vals)

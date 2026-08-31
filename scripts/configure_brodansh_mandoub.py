@@ -70,19 +70,23 @@ else:
             if not price:
                 price = line.product_id.lst_price
             qty = line.qty
+            packs = line.product_id.packaging_ids.filtered(lambda p: p.sales and p.qty > 0)
+            pack_qty = min(packs.mapped('qty')) if packs else 12
+            piece_qty = qty * pack_qty
             lines.append((0, 0, {
                 'sequence': sequence,
                 'product_id': line.product_id.id,
-                'product_uom_qty': qty,
+                'product_uom_qty': piece_qty,
                 'price_unit': price,
                 'discount': line.discount or 0.0,
+                'name': '%%s — %%s كرتون × %%s' %% (line.full_product_name or line.product_id.display_name, qty, pack_qty),
             }))
             pos_lines.append((0, 0, {
                 'product_id': line.product_id.id,
-                'qty': qty,
+                'qty': piece_qty,
                 'price_unit': price,
-                'price_subtotal': price * qty,
-                'price_subtotal_incl': price * qty,
+                'price_subtotal': price * piece_qty,
+                'price_subtotal_incl': price * piece_qty,
                 'full_product_name': line.full_product_name or line.product_id.display_name,
             }))
             sequence += 10

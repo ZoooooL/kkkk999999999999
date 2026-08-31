@@ -301,6 +301,7 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                     packById[product.id] || []
                 );
             }
+            pos._mandoubWarehouseId = warehouseId;
             pos._mandoubStockReady = true;
             decorateMandoubProductCards(pos);
         } catch (error) {
@@ -388,6 +389,26 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
         const observer = new MutationObserver(apply);
         observer.observe(document.body, { childList: true, subtree: true });
         loadMandoubWarehouseStock(pos);
+        document.addEventListener(
+            "click",
+            (event) => {
+                if (!isMandoubQuotationPos(pos)) {
+                    return;
+                }
+                const payBtn = event.target.closest?.(".pay-order-button, .pay-button");
+                const validateBtn = event.target.closest?.(
+                    ".payment-screen button.next, .payment-screen .button.next"
+                );
+                if (!payBtn && !validateBtn) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                pos.createMandoubQuotation();
+            },
+            true
+        );
     }
 
     function capturePackCount(pos, vals) {
@@ -423,9 +444,13 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
             origin: posConfigName(pos),
             lines: lines.map((line) => {
                 const product = line.get_product ? line.get_product() : line.product_id;
+                const cartonQty = Number(line.get_quantity ? line.get_quantity() : line.qty) || 0;
+                const packQty = productPackUnit(product);
                 return {
                     product_id: recordId(product),
-                    qty: line.get_quantity ? line.get_quantity() : line.qty,
+                    qty: cartonQty,
+                    carton_qty: cartonQty,
+                    pack_qty: packQty,
                     price_unit: line.get_unit_price ? line.get_unit_price() : line.price_unit,
                     discount: line.get_discount ? line.get_discount() : line.discount || 0,
                     full_product_name: line.full_product_name || line.get_full_product_name?.() || "",
@@ -458,63 +483,31 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 console.warn("Mandoub warehouse stock could not be loaded", error);
             }
         },
-        async addLineToCurrentOrder(vals, opts = {}, configure = true) {
-            if (isMandoubQuotationPos(this) && configure && !opts.mandoubPackApplied) {
-                opts = { ...opts, mandoubPackCount: capturePackCount(this, vals) };
-            }
-            return super.addLineToCurrentOrder(vals, opts, configure);
-        },
-        async addLineToOrder(vals, order, opts = {}, configure = true) {
-            const applyPack = isMandoubQuotationPos(this) && !opts.mandoubPackApplied && configure !== false;
-            const packCount = applyPack ? opts.mandoubPackCount || capturePackCount(this, vals) : 1;
-            const result = await super.addLineToOrder(
-                vals,
-                order,
-                applyPack ? { ...opts, mandoubPackApplied: true } : opts,
-                configure
-            );
-            if (applyPack && result) {
-                const product = result.get_product?.() || result.product_id || vals.product_id;
-                const unit = productPackUnit(product);
-                const qty = wholesaleLineQty(collectPackQtys(product), packCount, unit);
-                if (typeof result.set_quantity === "function") {
-                    result.set_quantity(qty);
-                } else {
-                    result.qty = qty;
-                }
-                try {
-                    this.numberBuffer?.reset?.();
-                } catch (_error) {
-                    /* ignore */
-                }
-            }
-            return result;
-        },
-        async addProductToCurrentOrder(product, options = {}) {
-            if (isMandoubQuotationPos(this) && !options.mandoubPackApplied) {
-                const packCount =
-                    options.quantity === undefined || options.quantity === null
-                        ? capturePackCount(this, {})
-                        : options.quantity;
-                options = {
-                    ...options,
-                    quantity: wholesaleLineQty(collectPackQtys(product), packCount, productPackUnit(product)),
-                    mandoubPackApplied: true,
-                };
-            }
-            if (typeof super.addProductToCurrentOrder === "function") {
-                return super.addProductToCurrentOrder(product, options);
-            }
-            return this.addLineToCurrentOrder(
-                { product_id: product, qty: options.quantity },
-                options
-            );
-        },
         async pay() {
             if (isMandoubQuotationPos(this)) {
                 return this.createMandoubQuotation();
             }
             return super.pay(...arguments);
+        },
+        mandoubQuotationFormUrl(orderId) {
+            const companyId = recordId(this.config?.company_id);
+            const cids = companyId ? `&cids=${companyId}` : "";
+            return `/web#model=sale.order&id=${orderId}&view_type=form${cids}`;
+        },
+        openMandoubQuotation(orderId) {
+            if (!orderId) {
+                return;
+            }
+            const formUrl = this.mandoubQuotationFormUrl(orderId);
+            const opened = window.open(formUrl, "_blank");
+            const action = this.action || this.env?.services?.action;
+            if (!opened && action?.doAction) {
+                action.doAction({
+                    type: "ir.actions.act_url",
+                    url: formUrl,
+                    target: "new",
+                });
+            }
         },
         printMandoubQuotationPdf(orderId, printUrl) {
             if (!orderId && !printUrl) {
@@ -556,18 +549,26 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
             } catch (_error) {
                 paymentTermId = false;
             }
-            const lines = (payload.lines || []).map((line, index) => [
-                0,
-                0,
-                {
-                    sequence: (index + 1) * 10,
-                    product_id: line.product_id,
-                    product_uom_qty: line.qty,
-                    price_unit: line.price_unit,
-                    discount: line.discount || 0,
-                    name: line.full_product_name || false,
-                },
-            ]);
+            const lines = (payload.lines || []).map((line, index) => {
+                const cartonQty = Number(line.carton_qty || line.qty) || 0;
+                const packQty = Number(line.pack_qty) || productPackUnit({ mandoub_pack_qty: line.pack_qty });
+                const pieceQty = wholesaleLineQty([packQty], cartonQty, packQty || DEFAULT_PACK_QTY);
+                const name = line.full_product_name
+                    ? `${line.full_product_name} — ${cartonQty} كرتون × ${packQty || DEFAULT_PACK_QTY}`
+                    : false;
+                return [
+                    0,
+                    0,
+                    {
+                        sequence: (index + 1) * 10,
+                        product_id: line.product_id,
+                        product_uom_qty: pieceQty,
+                        price_unit: line.price_unit,
+                        discount: line.discount || 0,
+                        name,
+                    },
+                ];
+            });
             const vals = {
                 partner_id: payload.partner_id,
                 origin: payload.origin,
@@ -607,18 +608,23 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                                 state: "draft",
                                 to_invoice: false,
                                 general_note: `[طلب] | ${order.name}`,
-                                lines: (payload.lines || []).map((line) => [
-                                    0,
-                                    0,
-                                    {
-                                        product_id: line.product_id,
-                                        qty: line.qty,
-                                        price_unit: line.price_unit,
-                                        price_subtotal: (line.price_unit || 0) * (line.qty || 0),
-                                        price_subtotal_incl: (line.price_unit || 0) * (line.qty || 0),
-                                        full_product_name: line.full_product_name || "",
-                                    },
-                                ]),
+                                lines: (payload.lines || []).map((line) => {
+                                    const cartonQty = Number(line.carton_qty || line.qty) || 0;
+                                    const packQty = Number(line.pack_qty) || DEFAULT_PACK_QTY;
+                                    const pieceQty = wholesaleLineQty([packQty], cartonQty, packQty);
+                                    return [
+                                        0,
+                                        0,
+                                        {
+                                            product_id: line.product_id,
+                                            qty: pieceQty,
+                                            price_unit: line.price_unit,
+                                            price_subtotal: (line.price_unit || 0) * pieceQty,
+                                            price_subtotal_incl: (line.price_unit || 0) * pieceQty,
+                                            full_product_name: line.full_product_name || "",
+                                        },
+                                    ];
+                                }),
                             },
                         ],
                     ],
@@ -649,6 +655,9 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
             };
         },
         async createMandoubQuotation() {
+            if (this._mandoubSaving) {
+                return;
+            }
             const order = this.get_order();
             if (!order || order.is_empty?.() || !(order.lines || []).length) {
                 this.env.services.dialog.add(AlertDialog, {
@@ -666,6 +675,7 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 return;
             }
             const ui = this.env.services.ui;
+            this._mandoubSaving = true;
             ui.block();
             try {
                 const payload = cartPayloadFromOrder(this);
@@ -675,30 +685,68 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 } catch (_error) {
                     result = await this.createMandoubQuotationViaOrm(payload);
                 }
+                this.openMandoubQuotation(result.sale_order_id);
                 this.printMandoubQuotationPdf(result.sale_order_id, result.print_url);
                 this.removeOrder(order, false);
                 this.add_new_order();
-                this.env.services.dialog.add(AlertDialog, {
-                    title: _t("حفظ و طباعة"),
-                    body:
-                        result.message ||
-                        _t(
-                            "تم حفظ عرض السعر %s وطباعته. يظهر في المطبخ كطلب. مدير المبيعات يؤكد ثم المستودع يشحّن ثم الحسابات تفوتر.",
-                            result.name
-                        ),
-                });
+                this.showScreen?.("ProductScreen");
             } catch (error) {
                 this.env.services.dialog.add(AlertDialog, {
                     title: _t("حفظ و طباعة"),
                     body: error?.data?.message || error?.message || String(error),
                 });
             } finally {
+                this._mandoubSaving = false;
                 ui.unblock();
             }
+        },
+        async getProductInfo(product, quantity, priceExtra = 0) {
+            const result = await super.getProductInfo(product, quantity, priceExtra);
+            if (!isMandoubQuotationPos(this) || !result?.productInfo) {
+                return result;
+            }
+            const warehouseId = this._mandoubWarehouseId;
+            const qty = productValue(product, "mandoub_qty_on_hand");
+            const warehouses = result.productInfo.warehouses || [];
+            if (qty !== undefined && qty !== null && warehouseId) {
+                let found = false;
+                result.productInfo.warehouses = warehouses
+                    .map((row) => {
+                        if (row.id === warehouseId) {
+                            found = true;
+                            return { ...row, available_quantity: qty, forecasted_quantity: qty };
+                        }
+                        return row;
+                    })
+                    .sort((left, right) => (left.id === warehouseId ? -1 : right.id === warehouseId ? 1 : 0));
+                if (!found) {
+                    result.productInfo.warehouses.unshift({
+                        id: warehouseId,
+                        name: "مستودع المصنع",
+                        available_quantity: qty,
+                        forecasted_quantity: qty,
+                        uom: product.uom_id?.name || "",
+                    });
+                }
+            } else if (qty !== undefined && qty !== null && warehouses[0]) {
+                warehouses[0].available_quantity = qty;
+                warehouses[0].forecasted_quantity = qty;
+            }
+            return result;
         },
     });
 
     patch(PaymentScreen.prototype, {
+        setup() {
+            super.setup(...arguments);
+            onMounted(() => {
+                if (isMandoubQuotationPos(this.pos)) {
+                    this.pos.createMandoubQuotation().then(() => {
+                        this.pos.showScreen("ProductScreen");
+                    });
+                }
+            });
+        },
         async validateOrder(isForceValidate) {
             if (isMandoubQuotationPos(this.pos)) {
                 await this.pos.createMandoubQuotation();
@@ -706,6 +754,14 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 return;
             }
             return super.validateOrder(isForceValidate);
+        },
+        async _finalizeValidation() {
+            if (isMandoubQuotationPos(this.pos)) {
+                await this.pos.createMandoubQuotation();
+                this.pos.showScreen("ProductScreen");
+                return;
+            }
+            return super._finalizeValidation(...arguments);
         },
     });
 
@@ -787,33 +843,6 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
         const OrderSummary = summaryMod?.OrderSummary || summaryMod;
         if (OrderSummary?.prototype && !OrderSummary._mandoubPatched) {
             OrderSummary._mandoubPatched = true;
-            patch(OrderSummary.prototype, {
-                _setValue(val) {
-                    if (
-                        isMandoubQuotationPos(this.pos) &&
-                        this.pos.numpadMode === "quantity" &&
-                        val !== "remove" &&
-                        val !== null &&
-                        val !== undefined
-                    ) {
-                        const selectedLine = this.currentOrder?.get_selected_orderline?.();
-                        const product = selectedLine?.get_product?.() || selectedLine?.product_id;
-                        if (product) {
-                            const packCount = parseFloat(val);
-                            if (!Number.isNaN(packCount)) {
-                                val = String(
-                                    wholesaleLineQty(
-                                        collectPackQtys(product),
-                                        packCount,
-                                        productPackUnit(product)
-                                    )
-                                );
-                            }
-                        }
-                    }
-                    return super._setValue(val);
-                },
-            });
         }
     }
 

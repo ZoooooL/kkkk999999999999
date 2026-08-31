@@ -99,6 +99,27 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertEqual(vals["order_line"][0][2]["product_uom_qty"], 2)
         self.assertEqual(vals["order_line"][1][2]["product_id"], 11)
 
+    def test_quotation_converts_cartons_to_pieces(self):
+        vals = quotation_vals_from_pos_cart(
+            {
+                "partner_id": 1,
+                "uuid": "cartons",
+                "lines": [
+                    {
+                        "product_id": 10,
+                        "qty": 2,
+                        "carton_qty": 2,
+                        "pack_qty": 24,
+                        "price_unit": 10,
+                        "full_product_name": "بلوزة",
+                    }
+                ],
+            },
+            {"origin": "مندوب — محمد صلاح", "company_id": 3},
+        )
+        self.assertEqual(vals["order_line"][0][2]["product_uom_qty"], 48)
+        self.assertIn("2 كرتون × 24", vals["order_line"][0][2]["name"])
+
     def test_quotation_vals_from_serialized_odoo_lines(self):
         vals = quotation_vals_from_pos_cart(
             {
@@ -196,7 +217,8 @@ class MandoubFrontendAssetTests(unittest.TestCase):
         self.assertIn("حفظ و طباعة", source)
         self.assertIn("printMandoubQuotationPdf", source)
         self.assertIn("createMandoubQuotationViaOrm", source)
-        self.assertIn("addLineToCurrentOrder", source)
+        self.assertIn("openMandoubQuotation", source)
+        self.assertIn("mandoubQuotationFormUrl", source)
         self.assertIn("mandoub-out-of-stock", source)
         self.assertIn("wholesaleLineQty", source)
 
