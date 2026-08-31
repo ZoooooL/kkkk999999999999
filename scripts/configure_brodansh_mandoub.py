@@ -27,12 +27,14 @@ from mandoub_setup import (  # noqa: E402
     POS_MANAGER_GROUP_XMLID,
     POS_ROOT_MENU_XMLID,
     POS_USER_GROUP_XMLID,
+    RULE_KITCHEN_SHOW,
     SETUP_GROUP_COMMENT,
     SETUP_GROUP_NAME,
     SHARED_KITCHEN_NAME,
     is_mandoub_pos_name,
+    is_per_cashier_kitchen_name,
     is_restricted_kitchen_name,
-    kitchen_display_name_for_pos,
+    kitchen_record_show_domain,
     setup_access_rule_specs,
     stage_spec_list,
 )
@@ -550,6 +552,71 @@ def ensure_display(client: OdooClient, name: str, company_id: int, pos_ids: list
     return log
 
 
+def _delete_kitchen_display(client: OdooClient, display_id: int) -> None:
+    """Drop a leftover screen without touching POS sessions."""
+    stages = client.execute(
+        "pos_preparation_display.order.stage",
+        "search",
+        [("preparation_display_id", "=", display_id)],
+    )
+    if stages:
+        client.execute("pos_preparation_display.order.stage", "unlink", stages)
+    display_stages = client.execute(
+        "pos_preparation_display.stage",
+        "search",
+        [("preparation_display_id", "=", display_id)],
+    )
+    if display_stages:
+        try:
+            client.execute("pos_preparation_display.stage", "unlink", display_stages)
+        except Exception:
+            pass
+    client.execute("pos_preparation_display.display", "unlink", [display_id])
+
+
+def consolidate_kitchen_to_shared_session(
+    client: OdooClient, company_id: int, pos_ids: list[int]
+) -> list[str]:
+    """One kitchen session (مناديب) for every mandoub POS. Remove per-cashier screens."""
+    log: list[str] = []
+    log.extend(ensure_display(client, SHARED_KITCHEN_NAME, company_id, pos_ids))
+    displays = client.execute(
+        "pos_preparation_display.display",
+        "search_read",
+        [("company_id", "=", company_id)],
+        fields=["id", "name"],
+    )
+    removed = 0
+    for row in displays:
+        name = row.get("name") or ""
+        if not is_per_cashier_kitchen_name(name):
+            continue
+        try:
+            _delete_kitchen_display(client, row["id"])
+            removed += 1
+            log.append("Removed per-cashier kitchen screen %s" % name)
+        except Exception as exc:  # noqa: BLE001
+            log.append("Could not remove kitchen screen %s: %s" % (name, exc))
+    if removed:
+        log.append("Kitchen cards now live in one session: %s" % SHARED_KITCHEN_NAME)
+    else:
+        leftovers = [row["name"] for row in displays if is_per_cashier_kitchen_name(row.get("name") or "")]
+        if leftovers:
+            log.append("Per-cashier kitchen screens still present: %s" % ", ".join(leftovers))
+        else:
+            log.append("Kitchen already uses one session: %s" % SHARED_KITCHEN_NAME)
+    show_rules = client.execute("ir.rule", "search", [("name", "=", RULE_KITCHEN_SHOW)])
+    if show_rules:
+        _write_translated(
+            client,
+            "ir.rule",
+            show_rules,
+            {"domain_force": kitchen_record_show_domain()},
+        )
+        log.append("Kitchen menu lists only %s" % SHARED_KITCHEN_NAME)
+    return log
+
+
 def sync_all_mandoub_displays(client: OdooClient, company_id: int) -> list[str]:
     """Rename/create the 4 kitchen stages on every mandoub display, including leftovers."""
     log: list[str] = []
@@ -856,17 +923,7 @@ def configure(client: OdooClient, company_id: int) -> list[str]:
     log.extend(assign_cashier_and_credit(client, mandoub, users_by_config, company_id, client.uid))
     log.extend(open_mandoub_sessions(client, mandoub, users_by_config, company_id))
     pos_ids = [row["id"] for row in mandoub]
-    log.extend(ensure_display(client, SHARED_KITCHEN_NAME, company_id, pos_ids))
-    for row in mandoub:
-        log.extend(
-            ensure_display(
-                client,
-                kitchen_display_name_for_pos(row["name"]),
-                company_id,
-                [row["id"]],
-            )
-        )
-    log.extend(sync_all_mandoub_displays(client, company_id))
+    log.extend(consolidate_kitchen_to_shared_session(client, company_id, pos_ids))
     log.append("Kitchen stages: طلب → تم التأكيد → تم الشحن → الفوترة")
     log.extend(apply_quotation_workflow(client, company_id, pos_ids))
     return log
@@ -1150,7 +1207,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--kitchen-only",
         action="store_true",
-        help="Update kitchen stages and automations without touching POS sessions.",
+        help="Put every mandoub order on the shared مناديب kitchen session without touching POS sessions.",
     )
     parser.add_argument(
         "--restrict-to-admin",
@@ -1172,7 +1229,7 @@ def main() -> None:
         company_name = os.getenv("ODOO_COMPANY_NAME", "مصنع ذو الجناحين للملابس الجاهزة").strip()
         print("Dry run: would use company=%s" % company_name)
         print("Kitchen stages:", ", ".join(spec["name"] for spec in stage_spec_list()))
-        print("Shared display:", SHARED_KITCHEN_NAME)
+        print("Shared kitchen session:", SHARED_KITCHEN_NAME)
         print("Cashier: each mandoub employee")
         print("Flow: حفظ و طباعة → طلب → تم التأكيد → تم الشحن → الفوترة")
         print("Payment method (fallback only):", CREDIT_PAYMENT_NAME)
@@ -1212,17 +1269,7 @@ def main() -> None:
         mandoub = [row for row in configs if is_mandoub_pos_name(row["name"])]
         pos_ids = [row["id"] for row in mandoub]
         logs = []
-        logs.extend(ensure_display(client, SHARED_KITCHEN_NAME, company_id, pos_ids))
-        for row in mandoub:
-            logs.extend(
-                ensure_display(
-                    client,
-                    kitchen_display_name_for_pos(row["name"]),
-                    company_id,
-                    [row["id"]],
-                )
-            )
-        logs.extend(sync_all_mandoub_displays(client, company_id))
+        logs.extend(consolidate_kitchen_to_shared_session(client, company_id, pos_ids))
         logs.extend(apply_quotation_workflow(client, company_id, pos_ids))
         for line in logs:
             print(line)

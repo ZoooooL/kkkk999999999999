@@ -6,7 +6,7 @@ from ..models.mandoub_setup import (
     CREDIT_PAYMENT_NAME,
     SHARED_KITCHEN_NAME,
     is_mandoub_pos_name,
-    kitchen_display_name_for_pos,
+    is_per_cashier_kitchen_name,
     stage_spec_list,
 )
 
@@ -210,6 +210,23 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
             display.write({"category_ids": [(6, 0, categories.ids)]})
         return display
 
+    def _remove_per_cashier_displays(self, log):
+        Display = self.env["pos_preparation_display.display"]
+        leftovers = Display.search(
+            [
+                ("company_id", "=", self.company_id.id),
+                ("name", "!=", SHARED_KITCHEN_NAME),
+            ]
+        )
+        StageLink = self.env["pos_preparation_display.order.stage"]
+        for display in leftovers:
+            if not is_per_cashier_kitchen_name(display.name):
+                continue
+            name = display.name
+            StageLink.search([("preparation_display_id", "=", display.id)]).unlink()
+            display.unlink()
+            log.append("أُزيلت الشاشة المنفصلة %s — الطلبات في جلسة %s" % (name, SHARED_KITCHEN_NAME))
+
     def _apply_setup(self):
         log = []
         configs = self._mandoub_configs()
@@ -220,18 +237,8 @@ class BrodanshMandoubSetupWizard(models.TransientModel):
         self._assign_cashier_and_credit(configs, users_by_config, log)
         self._open_sessions(configs, users_by_config, log)
         self._ensure_display(SHARED_KITCHEN_NAME, configs, log)
-        for config in configs:
-            self._ensure_display(kitchen_display_name_for_pos(config.name), config, log)
-        leftovers = self.env["pos_preparation_display.display"].search(
-            [
-                ("company_id", "=", self.company_id.id),
-                "|",
-                ("name", "=", SHARED_KITCHEN_NAME),
-                ("name", "ilike", "مندوب"),
-            ]
-        )
-        for display in leftovers:
-            self._sync_stages(display, log)
+        self._remove_per_cashier_displays(log)
+        log.append("شاشة المطبخ جلسة واحدة: %s" % SHARED_KITCHEN_NAME)
         self._set_delivery_invoice_policy(log)
         log.append("المراحل: طلب → تم التأكيد → تم الشحن → الفوترة")
         log.append("التدفق: حفظ و طباعة → المدير يؤكد → المخازن تشحن → الحسابات تفوتر")

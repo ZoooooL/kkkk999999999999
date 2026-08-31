@@ -149,10 +149,7 @@ def kitchen_record_hide_domain():
 
 
 def kitchen_record_show_domain():
-    return "['|', ('name', 'ilike', '%s'), ('name', 'ilike', '%s')]" % (
-        MANDOUB_NAME_NEEDLE,
-        SHARED_KITCHEN_NAME,
-    )
+    return "[('name', '=', '%s')]" % SHARED_KITCHEN_NAME
 
 
 def kitchen_order_hide_domain():
@@ -205,6 +202,11 @@ def normalize_arabic_name(text):
 
 def kitchen_display_name_for_pos(pos_name):
     return "%s%s" % (KITCHEN_DISPLAY_PREFIX, pos_name)
+
+
+def is_per_cashier_kitchen_name(name):
+    """True for leftover per-cashier screens; the shared session is مناديب."""
+    return bool(name) and name.startswith(KITCHEN_DISPLAY_PREFIX + MANDOUB_POS_PREFIX)
 
 
 def kitchen_card_note(so_name, partner_name="", salesperson_name=""):

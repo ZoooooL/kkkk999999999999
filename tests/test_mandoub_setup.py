@@ -34,10 +34,15 @@ class MandoubSetupTests(unittest.TestCase):
         self.assertFalse(is_mandoub_pos_name(None))
 
     def test_kitchen_display_name(self):
+        from mandoub_setup import is_per_cashier_kitchen_name
+
         self.assertEqual(
             kitchen_display_name_for_pos("مندوب — محمد صلاح"),
             "شاشة مندوب — محمد صلاح",
         )
+        self.assertTrue(is_per_cashier_kitchen_name("شاشة مندوب — محمد صلاح"))
+        self.assertFalse(is_per_cashier_kitchen_name("مناديب"))
+        self.assertFalse(is_per_cashier_kitchen_name("جملة الملابس — الشرقي"))
 
     def test_kitchen_stage_names(self):
         from mandoub_setup import MANDOUB_SAVE_PRINT_LABEL, stage_spec_list
@@ -225,6 +230,10 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertIn("not ilike", mandoub_record_hide_domain())
         self.assertIn("مندوب", mandoub_record_hide_domain())
         self.assertIn("مناديب", kitchen_record_hide_domain())
+        from mandoub_setup import kitchen_record_show_domain
+
+        self.assertIn("مناديب", kitchen_record_show_domain())
+        self.assertIn("'='", kitchen_record_show_domain())
         specs = setup_access_rule_specs()
         self.assertGreaterEqual(len(specs), 8)
         self.assertEqual(SETUP_GROUP_NAME, "ضبط نقاط بيع المناديب")
