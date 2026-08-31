@@ -3,6 +3,28 @@
 MANDOUB_POS_PREFIX = "مندوب —"
 KITCHEN_DISPLAY_PREFIX = "شاشة "
 SHARED_KITCHEN_NAME = "مناديب"
+MANDOUB_NAME_NEEDLE = "مندوب"
+SETUP_GROUP_NAME = "ضبط نقاط بيع المناديب"
+SETUP_GROUP_COMMENT = (
+    "أثناء ضبط نقاط بيع المناديب وشاشة المطبخ: تظهر لصاحب هذه المجموعة فقط."
+)
+ACCESS_LOCK_PARAM = "brodansh_mandoub.setup_access_lock"
+POS_ROOT_MENU_XMLID = ("point_of_sale", "menu_point_root")
+KITCHEN_MENU_XMLID = ("point_of_sale", "menu_pos_preparation_display")
+POS_USER_GROUP_XMLID = ("point_of_sale", "group_pos_user")
+POS_MANAGER_GROUP_XMLID = ("point_of_sale", "group_pos_manager")
+POS_CATEGORY_XMLID = ("base", "module_category_point_of_sale")
+
+RULE_POS_CONFIG_HIDE = "مندوب: إخفاء نقاط البيع قيد الضبط"
+RULE_POS_CONFIG_SHOW = "مندوب: إظهار نقاط البيع لمسؤول الضبط"
+RULE_POS_SESSION_HIDE = "مندوب: إخفاء جلسات نقاط البيع قيد الضبط"
+RULE_POS_SESSION_SHOW = "مندوب: إظهار جلسات نقاط البيع لمسؤول الضبط"
+RULE_POS_ORDER_HIDE = "مندوب: إخفاء طلبات نقاط البيع قيد الضبط"
+RULE_POS_ORDER_SHOW = "مندوب: إظهار طلبات نقاط البيع لمسؤول الضبط"
+RULE_KITCHEN_HIDE = "مندوب: إخفاء شاشات المطبخ قيد الضبط"
+RULE_KITCHEN_SHOW = "مندوب: إظهار شاشات المطبخ لمسؤول الضبط"
+RULE_KITCHEN_ORDER_HIDE = "مندوب: إخفاء بطاقات المطبخ قيد الضبط"
+RULE_KITCHEN_ORDER_SHOW = "مندوب: إظهار بطاقات المطبخ لمسؤول الضبط"
 CREDIT_PAYMENT_NAME = "آجل"
 CREDIT_PAYMENT_TERM_NAME = "30 يوماً"
 FACTORY_WAREHOUSE_CODE = "WH-MS"
@@ -90,6 +112,91 @@ def default_pos_qty(packagings, qty_on_hand=None, fallback=DEFAULT_PACK_QTY, alr
 
 def is_mandoub_pos_name(name):
     return bool(name) and name.startswith(MANDOUB_POS_PREFIX)
+
+
+def is_restricted_pos_name(name):
+    """True for mandoub POS configs that stay hidden while setup is in progress."""
+    return MANDOUB_NAME_NEEDLE in (name or "")
+
+
+def is_restricted_kitchen_name(name):
+    """True for mandoub kitchen screens, including the shared مناديب overview."""
+    text = name or ""
+    return MANDOUB_NAME_NEEDLE in text or SHARED_KITCHEN_NAME in text
+
+
+def mandoub_record_hide_domain():
+    return "[('name', 'not ilike', '%s')]" % MANDOUB_NAME_NEEDLE
+
+
+def mandoub_record_show_domain():
+    return "[('name', 'ilike', '%s')]" % MANDOUB_NAME_NEEDLE
+
+
+def mandoub_session_hide_domain():
+    return "[('config_id.name', 'not ilike', '%s')]" % MANDOUB_NAME_NEEDLE
+
+
+def mandoub_session_show_domain():
+    return "[('config_id.name', 'ilike', '%s')]" % MANDOUB_NAME_NEEDLE
+
+
+def kitchen_record_hide_domain():
+    return "['&', ('name', 'not ilike', '%s'), ('name', 'not ilike', '%s')]" % (
+        MANDOUB_NAME_NEEDLE,
+        SHARED_KITCHEN_NAME,
+    )
+
+
+def kitchen_record_show_domain():
+    return "['|', ('name', 'ilike', '%s'), ('name', 'ilike', '%s')]" % (
+        MANDOUB_NAME_NEEDLE,
+        SHARED_KITCHEN_NAME,
+    )
+
+
+def kitchen_order_hide_domain():
+    return "[('pos_config_id.name', 'not ilike', '%s')]" % MANDOUB_NAME_NEEDLE
+
+
+def kitchen_order_show_domain():
+    return "[('pos_config_id.name', 'ilike', '%s')]" % MANDOUB_NAME_NEEDLE
+
+
+def setup_access_rule_specs():
+    """Hide/show pairs applied while mandoub POS is being tuned."""
+    return (
+        ("pos.config", RULE_POS_CONFIG_HIDE, mandoub_record_hide_domain(), "hide"),
+        ("pos.config", RULE_POS_CONFIG_SHOW, mandoub_record_show_domain(), "show"),
+        ("pos.session", RULE_POS_SESSION_HIDE, mandoub_session_hide_domain(), "hide"),
+        ("pos.session", RULE_POS_SESSION_SHOW, mandoub_session_show_domain(), "show"),
+        ("pos.order", RULE_POS_ORDER_HIDE, mandoub_session_hide_domain(), "hide"),
+        ("pos.order", RULE_POS_ORDER_SHOW, mandoub_session_show_domain(), "show"),
+        (
+            "pos_preparation_display.display",
+            RULE_KITCHEN_HIDE,
+            kitchen_record_hide_domain(),
+            "hide",
+        ),
+        (
+            "pos_preparation_display.display",
+            RULE_KITCHEN_SHOW,
+            kitchen_record_show_domain(),
+            "show",
+        ),
+        (
+            "pos_preparation_display.order",
+            RULE_KITCHEN_ORDER_HIDE,
+            kitchen_order_hide_domain(),
+            "hide",
+        ),
+        (
+            "pos_preparation_display.order",
+            RULE_KITCHEN_ORDER_SHOW,
+            kitchen_order_show_domain(),
+            "show",
+        ),
+    )
 
 
 def normalize_arabic_name(text):

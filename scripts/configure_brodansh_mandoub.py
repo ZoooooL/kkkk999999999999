@@ -7,8 +7,10 @@ Does not print secrets.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+import uuid
 import xmlrpc.client
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,12 +19,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "brodansh_mandoub_pos" / "models"))
 
 from mandoub_setup import (  # noqa: E402
+    ACCESS_LOCK_PARAM,
     CREDIT_PAYMENT_NAME,
     FACTORY_WAREHOUSE_CODE,
+    KITCHEN_MENU_XMLID,
     MANDOUB_POS_PREFIX,
+    POS_MANAGER_GROUP_XMLID,
+    POS_ROOT_MENU_XMLID,
+    POS_USER_GROUP_XMLID,
+    SETUP_GROUP_COMMENT,
+    SETUP_GROUP_NAME,
     SHARED_KITCHEN_NAME,
     is_mandoub_pos_name,
+    is_restricted_kitchen_name,
     kitchen_display_name_for_pos,
+    setup_access_rule_specs,
     stage_spec_list,
 )
 from mandoub_setup import normalize_arabic_name  # noqa: E402
@@ -861,6 +872,277 @@ def configure(client: OdooClient, company_id: int) -> list[str]:
     return log
 
 
+def _xmlid_id(client: OdooClient, module: str, name: str) -> int:
+    rows = client.execute(
+        "ir.model.data",
+        "search_read",
+        [("module", "=", module), ("name", "=", name)],
+        fields=["res_id"],
+        limit=1,
+    )
+    if not rows:
+        raise SystemExit("XMLID not found: %s.%s" % (module, name))
+    return rows[0]["res_id"]
+
+
+def _write_translated(client: OdooClient, model: str, ids: list[int], vals: dict) -> None:
+    for lang in ("ar_001", "en_US"):
+        client.execute(model, "write", ids, vals, context={"lang": lang})
+
+
+def _param_get(client: OdooClient, key: str) -> str:
+    rows = client.execute(
+        "ir.config_parameter",
+        "search_read",
+        [("key", "=", key)],
+        fields=["value"],
+        limit=1,
+    )
+    return (rows[0]["value"] if rows else "") or ""
+
+
+def _param_set(client: OdooClient, key: str, value: str) -> None:
+    existing = client.execute("ir.config_parameter", "search", [("key", "=", key)])
+    if existing:
+        client.execute("ir.config_parameter", "write", existing, {"value": value})
+    else:
+        client.execute("ir.config_parameter", "create", {"key": key, "value": value})
+
+
+def _ensure_setup_group(client: OdooClient, admin_uid: int) -> int:
+    rows = client.execute(
+        "res.groups",
+        "search_read",
+        [("name", "=", SETUP_GROUP_NAME)],
+        fields=["id", "users"],
+    )
+    vals = {
+        "name": SETUP_GROUP_NAME,
+        "comment": SETUP_GROUP_COMMENT,
+        "users": [(6, 0, [admin_uid])],
+    }
+    if rows:
+        group_id = rows[0]["id"]
+        _write_translated(client, "res.groups", [group_id], vals)
+        return group_id
+    group_id = client.execute("res.groups", "create", vals)
+    _write_translated(
+        client,
+        "res.groups",
+        [group_id],
+        {"name": SETUP_GROUP_NAME, "comment": SETUP_GROUP_COMMENT},
+    )
+    return group_id
+
+
+def _ensure_rule(
+    client: OdooClient,
+    name: str,
+    model_name: str,
+    domain: str,
+    group_ids: list[int],
+) -> int:
+    model_id = _model_id(client, model_name)
+    rows = client.execute(
+        "ir.rule",
+        "search_read",
+        [("name", "=", name), ("model_id", "=", model_id)],
+        fields=["id"],
+    )
+    vals = {
+        "name": name,
+        "model_id": model_id,
+        "domain_force": domain,
+        "groups": [(6, 0, group_ids)],
+        "perm_read": True,
+        "perm_write": True,
+        "perm_create": True,
+        "perm_unlink": True,
+        "active": True,
+    }
+    if rows:
+        rule_id = rows[0]["id"]
+        _write_translated(client, "ir.rule", [rule_id], vals)
+        return rule_id
+    rule_id = client.execute("ir.rule", "create", vals)
+    _write_translated(client, "ir.rule", [rule_id], {"name": name})
+    return rule_id
+
+
+def _mandoub_configs(client: OdooClient, company_id: int) -> list[dict]:
+    rows = client.execute(
+        "pos.config",
+        "search_read",
+        [("company_id", "=", company_id)],
+        fields=["id", "name", "basic_employee_ids", "advanced_employee_ids"],
+        context={"active_test": False},
+    )
+    return [row for row in rows if is_mandoub_pos_name(row["name"])]
+
+
+def restrict_mandoub_to_admin(client: OdooClient, company_id: int, admin_uid: int) -> list[str]:
+    """Hide mandoub POS + kitchen from everyone except admin_uid. Reversible."""
+    log: list[str] = []
+    previous = _param_get(client, ACCESS_LOCK_PARAM)
+    backup = json.loads(previous) if previous else {}
+    if not isinstance(backup, dict):
+        backup = {}
+
+    group_id = _ensure_setup_group(client, admin_uid)
+    pos_user = _xmlid_id(client, *POS_USER_GROUP_XMLID)
+    pos_manager = _xmlid_id(client, *POS_MANAGER_GROUP_XMLID)
+    pos_menu = _xmlid_id(client, *POS_ROOT_MENU_XMLID)
+    kitchen_menu = _xmlid_id(client, *KITCHEN_MENU_XMLID)
+
+    menus = client.execute(
+        "ir.ui.menu",
+        "read",
+        [pos_menu, kitchen_menu],
+        ["id", "groups_id"],
+    )
+    menu_groups = backup.get("menu_groups") or {}
+    for menu in menus:
+        menu_groups.setdefault(str(menu["id"]), list(menu["groups_id"] or []))
+
+    employee_backup = backup.get("employees") or {}
+    manager_emp = employee_for_user(client, admin_uid, company_id)
+    manager_emp_id = manager_emp["id"] if manager_emp else False
+    configs = _mandoub_configs(client, company_id)
+    for config in configs:
+        key = str(config["id"])
+        employee_backup.setdefault(
+            key,
+            {
+                "basic": list(config.get("basic_employee_ids") or []),
+                "advanced": list(config.get("advanced_employee_ids") or []),
+            },
+        )
+        vals = {
+            "basic_employee_ids": [(6, 0, [manager_emp_id] if manager_emp_id else [])],
+            "advanced_employee_ids": [(6, 0, [manager_emp_id] if manager_emp_id else [])],
+        }
+        client.execute("pos.config", "write", [config["id"]], vals)
+    log.append("Restricted cashiers on %s mandoub POS configs to admin only" % len(configs))
+
+    displays = client.execute(
+        "pos_preparation_display.display",
+        "search_read",
+        [("company_id", "=", company_id)],
+        fields=["id", "name"],
+    )
+    kitchen_ids = [row["id"] for row in displays if is_restricted_kitchen_name(row["name"])]
+    rotated = 0
+    for display_id in kitchen_ids:
+        try:
+            client.execute(
+                "pos_preparation_display.display",
+                "write",
+                [display_id],
+                {"access_token": str(uuid.uuid4())},
+            )
+            rotated += 1
+        except Exception as exc:  # noqa: BLE001
+            log.append("Could not rotate kitchen token %s: %s" % (display_id, exc))
+    if rotated:
+        log.append("Rotated %s kitchen display tokens" % rotated)
+
+    rule_ids = []
+    for model_name, rule_name, domain, kind in setup_access_rule_specs():
+        groups = [group_id] if kind == "show" else [pos_user, pos_manager]
+        rule_ids.append(_ensure_rule(client, rule_name, model_name, domain, groups))
+    log.append("Applied %s record rules hiding mandoub POS/kitchen" % len(rule_ids))
+
+    client.execute("ir.ui.menu", "write", [pos_menu], {"groups_id": [(6, 0, [group_id])]})
+    client.execute("ir.ui.menu", "write", [kitchen_menu], {"groups_id": [(6, 0, [group_id])]})
+    log.append("Hid Point of Sale and kitchen menus except for %s" % SETUP_GROUP_NAME)
+
+    payload = {
+        "restricted": True,
+        "admin_uid": admin_uid,
+        "group_id": group_id,
+        "rule_ids": rule_ids,
+        "menu_groups": menu_groups,
+        "employees": employee_backup,
+        "pos_menu_id": pos_menu,
+        "kitchen_menu_id": kitchen_menu,
+    }
+    _param_set(client, ACCESS_LOCK_PARAM, json.dumps(payload, ensure_ascii=False))
+    log.append("Mandoub POS and kitchen are visible only to user %s" % admin_uid)
+    return log
+
+
+def restore_mandoub_access(client: OdooClient, company_id: int) -> list[str]:
+    """Undo restrict_mandoub_to_admin using the stored backup."""
+    log: list[str] = []
+    raw = _param_get(client, ACCESS_LOCK_PARAM)
+    backup = json.loads(raw) if raw else {}
+    if not isinstance(backup, dict):
+        backup = {}
+
+    for _model_name, rule_name, _domain, _kind in setup_access_rule_specs():
+        found = client.execute("ir.rule", "search", [("name", "=", rule_name)])
+        if found:
+            client.execute("ir.rule", "unlink", found)
+            log.append("Removed rule %s" % rule_name)
+
+    pos_user = _xmlid_id(client, *POS_USER_GROUP_XMLID)
+    pos_manager = _xmlid_id(client, *POS_MANAGER_GROUP_XMLID)
+    pos_menu = backup.get("pos_menu_id") or _xmlid_id(client, *POS_ROOT_MENU_XMLID)
+    kitchen_menu = backup.get("kitchen_menu_id") or _xmlid_id(client, *KITCHEN_MENU_XMLID)
+    menu_groups = backup.get("menu_groups") or {}
+    pos_groups = menu_groups.get(str(pos_menu), [pos_manager, pos_user])
+    kitchen_groups = menu_groups.get(str(kitchen_menu), [])
+    client.execute("ir.ui.menu", "write", [pos_menu], {"groups_id": [(6, 0, pos_groups)]})
+    client.execute("ir.ui.menu", "write", [kitchen_menu], {"groups_id": [(6, 0, kitchen_groups)]})
+    log.append("Restored Point of Sale and kitchen menus")
+
+    employees = backup.get("employees") or {}
+    restored = 0
+    for config_id, lists in employees.items():
+        try:
+            cid = int(config_id)
+        except (TypeError, ValueError):
+            continue
+        client.execute(
+            "pos.config",
+            "write",
+            [cid],
+            {
+                "basic_employee_ids": [(6, 0, lists.get("basic") or [])],
+                "advanced_employee_ids": [(6, 0, lists.get("advanced") or [])],
+            },
+        )
+        restored += 1
+    if not employees:
+        manager_uid = backup.get("admin_uid") or client.uid
+        manager_emp = employee_for_user(client, manager_uid, company_id)
+        manager_emp_id = manager_emp["id"] if manager_emp else False
+        for config in _mandoub_configs(client, company_id):
+            cashier, _user_id = cashier_for_config(client, config, {}, company_id, manager_uid)
+            cashier_id = cashier["id"] if cashier else False
+            advanced = [eid for eid in (manager_emp_id, cashier_id) if eid]
+            basic = [cashier_id] if cashier_id else []
+            client.execute(
+                "pos.config",
+                "write",
+                [config["id"]],
+                {
+                    "basic_employee_ids": [(6, 0, basic)],
+                    "advanced_employee_ids": [(6, 0, advanced)],
+                },
+            )
+            restored += 1
+    log.append("Restored cashiers on %s POS configs" % restored)
+
+    _param_set(
+        client,
+        ACCESS_LOCK_PARAM,
+        json.dumps({"restricted": False, "group_id": backup.get("group_id")}, ensure_ascii=False),
+    )
+    log.append("Mandoub POS and kitchen are visible to cashiers again")
+    return log
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Configure Brodansh mandoub POS + kitchen screens")
     parser.add_argument("--env-file", default=str(ROOT / ".env"))
@@ -869,6 +1151,16 @@ def parse_args() -> argparse.Namespace:
         "--kitchen-only",
         action="store_true",
         help="Update kitchen stages and automations without touching POS sessions.",
+    )
+    parser.add_argument(
+        "--restrict-to-admin",
+        action="store_true",
+        help="Hide mandoub POS and kitchen from everyone except the API user (Waleed).",
+    )
+    parser.add_argument(
+        "--restore-access",
+        action="store_true",
+        help="Undo --restrict-to-admin and show POS/kitchen to cashiers again.",
     )
     return parser.parse_args()
 
@@ -884,6 +1176,10 @@ def main() -> None:
         print("Cashier: each mandoub employee")
         print("Flow: حفظ و طباعة → طلب → تم التأكيد → تم الشحن → الفوترة")
         print("Payment method (fallback only):", CREDIT_PAYMENT_NAME)
+        if args.restrict_to_admin:
+            print("Would hide POS + kitchen except for the API user")
+        if args.restore_access:
+            print("Would restore POS + kitchen visibility to cashiers")
         return
 
     url = require_env("ODOO_URL")
@@ -896,6 +1192,16 @@ def main() -> None:
     company_id = find_company_id(client, company_name)
     companies = client.execute("res.company", "search", [])
     client.set_company_ids(companies or [company_id])
+    if args.restrict_to_admin and args.restore_access:
+        raise SystemExit("Use either --restrict-to-admin or --restore-access, not both.")
+    if args.restrict_to_admin:
+        for line in restrict_mandoub_to_admin(client, company_id, client.uid):
+            print(line)
+        return
+    if args.restore_access:
+        for line in restore_mandoub_access(client, company_id):
+            print(line)
+        return
     if args.kitchen_only:
         configs = client.execute(
             "pos.config",

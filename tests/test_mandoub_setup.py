@@ -206,6 +206,32 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertFalse(is_finished_goods_category("الاقمشة"))
         self.assertFalse(is_finished_goods_category(""))
 
+    def test_setup_access_hides_mandoub_not_other_pos(self):
+        from mandoub_setup import (
+            RULE_KITCHEN_HIDE,
+            SETUP_GROUP_NAME,
+            is_restricted_kitchen_name,
+            is_restricted_pos_name,
+            kitchen_record_hide_domain,
+            mandoub_record_hide_domain,
+            setup_access_rule_specs,
+        )
+
+        self.assertTrue(is_restricted_pos_name("مندوب — محمد صلاح"))
+        self.assertFalse(is_restricted_pos_name("جملة الملابس — الشرقي"))
+        self.assertTrue(is_restricted_kitchen_name("شاشة مندوب — محمد صلاح"))
+        self.assertTrue(is_restricted_kitchen_name("مناديب"))
+        self.assertFalse(is_restricted_kitchen_name("مطبخ المطعم"))
+        self.assertIn("not ilike", mandoub_record_hide_domain())
+        self.assertIn("مندوب", mandoub_record_hide_domain())
+        self.assertIn("مناديب", kitchen_record_hide_domain())
+        specs = setup_access_rule_specs()
+        self.assertGreaterEqual(len(specs), 8)
+        self.assertEqual(SETUP_GROUP_NAME, "ضبط نقاط بيع المناديب")
+        self.assertTrue(any(name == RULE_KITCHEN_HIDE for _model, name, _domain, kind in specs if kind == "hide"))
+        kinds = {kind for _m, _n, _d, kind in specs}
+        self.assertEqual(kinds, {"hide", "show"})
+
 
 class MandoubFrontendAssetTests(unittest.TestCase):
     def test_pos_js_is_classic_odoo_define_without_export(self):
