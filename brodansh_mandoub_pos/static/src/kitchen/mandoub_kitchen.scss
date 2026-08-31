@@ -3,53 +3,47 @@
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
     border-radius: 18px !important;
     background: #fff;
+}
 
-    .o_pdis_order_card_header {
-        padding-bottom: 0.25rem;
-    }
+.o_pdis_order_card .o_pdis_order_card_header_top {
+    padding: 0.85rem 1rem 0.35rem !important;
+    align-items: flex-start !important;
+    gap: 0.5rem;
+}
 
-    .o_pdis_order_card_header_top {
-        padding: 0.85rem 1rem 0.35rem !important;
-        align-items: flex-start !important;
-        gap: 0.5rem;
-    }
+.o_pdis_order_card .o_pdis_tracker {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #64748b;
+}
 
-    .o_pdis_tracker {
-        font-size: 0.95rem;
-        font-weight: 700;
-        color: #64748b;
-        letter-spacing: 0.02em;
-    }
+.o_pdis_order_card .o_pdis_staff {
+    font-size: 1.7rem !important;
+    font-weight: 800 !important;
+    line-height: 1.25;
+    color: #0f172a;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+}
 
-    .o_pdis_staff {
-        font-size: 1.7rem !important;
-        font-weight: 800 !important;
-        line-height: 1.25;
-        color: #0f172a;
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: unset !important;
-        text-align: start;
+.o_pdis_order_card .o_pdis_staff .fa {
+    display: none;
+}
 
-        .fa {
-            display: none;
-        }
-    }
+.o_pdis_order_card .o_pdis_orderline,
+.o_pdis_order_card .product-down-bubble,
+.o_pdis_order_card .text-break {
+    display: none !important;
+}
 
-    .o_pdis_orderline,
-    .product-down-bubble,
-    .text-break {
-        display: none !important;
-    }
+.o_pdis_order_card .o_pdis_order_card_header_bottom {
+    padding: 0.35rem 1rem 0.9rem !important;
+}
 
-    .o_pdis_order_card_header_bottom {
-        padding: 0.35rem 1rem 0.9rem !important;
-    }
-
-    .o_pdis_stage {
-        font-weight: 700;
-        font-size: 0.9rem;
-    }
+.o_pdis_order_card .o_pdis_stage {
+    font-weight: 700;
+    font-size: 0.9rem;
 }
 
 .o_pdis_orders {

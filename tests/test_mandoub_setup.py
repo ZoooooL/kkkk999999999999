@@ -281,6 +281,7 @@ class MandoubFrontendAssetTests(unittest.TestCase):
         self.assertIn(".o_pdis_orderline", scss)
         self.assertIn("display: none", scss)
         self.assertIn(".o_pdis_staff", scss)
+        self.assertIn("1.7rem", scss)
 
 
 if __name__ == "__main__":
