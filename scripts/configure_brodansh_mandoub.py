@@ -45,6 +45,13 @@ CONFIRM_AUTOMATION_NAME = "مندوب: المدير فقط يؤكد الطلب"
 KITCHEN_CONFIRM_AUTOMATION_NAME = "مندوب: شاشة المطبخ — تم التأكيد"
 KITCHEN_DELIVERY_AUTOMATION_NAME = "مندوب: شاشة المطبخ — تم الشحن"
 KITCHEN_INVOICE_AUTOMATION_NAME = "مندوب: شاشة المطبخ — الفوترة"
+SECURITY_MAIL_AUTOMATION_NAME = "إيقاف إشعارات تحديث الأمان"
+
+SECURITY_MAIL_CODE = """
+subject = record.subject or ''
+if 'تحديث الأمان' in subject or 'Security Update:' in subject:
+    record.sudo().write({'state': 'cancel', 'auto_delete': True})
+"""
 
 POS_TO_SO_CODE = """
 if env.context.get('mandoub_kitchen_shadow'):
@@ -777,6 +784,42 @@ def _ensure_code_automation(
     return "Created automation %s" % name
 
 
+def disable_security_update_mails(client: OdooClient) -> list[str]:
+    """Stop Odoo emails titled تحديث الأمان / Security Update."""
+    log: list[str] = []
+    log.append(
+        _ensure_code_automation(
+            client,
+            SECURITY_MAIL_AUTOMATION_NAME,
+            "mail.mail",
+            "on_create",
+            SECURITY_MAIL_CODE,
+            extra={
+                "filter_domain": (
+                    "['|', ('subject', 'ilike', 'تحديث الأمان'), "
+                    "('subject', 'ilike', 'Security Update')]"
+                )
+            },
+        )
+    )
+    queued = client.execute(
+        "mail.mail",
+        "search",
+        [
+            "|",
+            ("subject", "ilike", "تحديث الأمان"),
+            ("subject", "ilike", "Security Update"),
+            ("state", "in", ["outgoing", "exception"]),
+        ],
+    )
+    if queued:
+        client.execute("mail.mail", "write", queued, {"state": "cancel", "auto_delete": True})
+        log.append("Cancelled %s queued security-update emails" % len(queued))
+    else:
+        log.append("No queued security-update emails")
+    return log
+
+
 def set_delivery_invoice_policy(client: OdooClient, company_id: int) -> str:
     ids = client.execute(
         "product.template",
@@ -1219,6 +1262,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Undo --restrict-to-admin and show POS/kitchen to cashiers again.",
     )
+    parser.add_argument(
+        "--stop-security-mails",
+        action="store_true",
+        help="Stop Odoo security-update emails (password/login/email changed).",
+    )
     return parser.parse_args()
 
 
@@ -1237,6 +1285,8 @@ def main() -> None:
             print("Would hide POS + kitchen except for the API user")
         if args.restore_access:
             print("Would restore POS + kitchen visibility to cashiers")
+        if args.stop_security_mails:
+            print("Would stop security-update emails")
         return
 
     url = require_env("ODOO_URL")
@@ -1257,6 +1307,10 @@ def main() -> None:
         return
     if args.restore_access:
         for line in restore_mandoub_access(client, company_id):
+            print(line)
+        return
+    if args.stop_security_mails:
+        for line in disable_security_update_mails(client):
             print(line)
         return
     if args.kitchen_only:

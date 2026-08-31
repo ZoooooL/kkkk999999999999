@@ -166,6 +166,13 @@ class MandoubQuotationTests(unittest.TestCase):
         self.assertIn("رعاية الطبية", parsed["partner_name"])
         self.assertEqual(parsed["salesperson_name"], "محمد صلاح")
         self.assertEqual(parse_kitchen_card_note(""), {"so_name": "", "partner_name": "", "salesperson_name": ""})
+
+    def test_security_update_mail_subjects(self):
+        from mandoub_setup import is_security_update_mail_subject
+
+        self.assertTrue(is_security_update_mail_subject("تحديث الأمان: تغيرت كلمة المرور "))
+        self.assertTrue(is_security_update_mail_subject("Security Update: Login Changed"))
+        self.assertFalse(is_security_update_mail_subject("S08824"))
         self.assertEqual(kitchen_stage_index("draft"), 0)
         self.assertEqual(kitchen_stage_index("sale"), 1)
         self.assertEqual(kitchen_stage_index("sale", delivery_done=True), 2)

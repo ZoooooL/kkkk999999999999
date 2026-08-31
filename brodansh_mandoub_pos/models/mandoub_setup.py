@@ -218,6 +218,15 @@ def kitchen_card_note(so_name, partner_name="", salesperson_name=""):
     return " | ".join(parts)
 
 
+SECURITY_UPDATE_SUBJECT_NEEDLES = ("تحديث الأمان", "Security Update:")
+
+
+def is_security_update_mail_subject(subject):
+    """True for Odoo login/password/email security-update notices."""
+    text = subject or ""
+    return any(needle in text for needle in SECURITY_UPDATE_SUBJECT_NEEDLES)
+
+
 def parse_kitchen_card_note(note):
     """Split «[طلب] | S08824 | عميل | مندوب» into sale order, customer, cashier."""
     text = (note or "").replace("\n", " ").strip()
