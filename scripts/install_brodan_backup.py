@@ -26,6 +26,7 @@ from backup_config import (  # noqa: E402
     CRON_NAME,
     DEFAULT_FOLDER,
     DEFAULT_KEEP_DAYS,
+    DEFAULT_SFTP_PATH,
     LOG_MODEL,
     MENU_NAME,
     SERVER_ACTION_NAME,
@@ -33,6 +34,8 @@ from backup_config import (  # noqa: E402
     local_dump_allowed,
     parse_df_available_bytes,
     skip_message,
+    sftp_missing_message,
+    sftp_upload_program,
 )
 
 BACKUP_CODE = r"""
@@ -40,7 +43,7 @@ Config = env['x_brodan_backup_config'].sudo()
 Log = env['x_brodan_backup_log'].sudo()
 cfg = Config.search([], limit=1)
 if not cfg:
-    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_days_to_keep': 2, 'x_active': True})
+    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_path': 'D:/Brodansh_Backups', 'x_days_to_keep': 2, 'x_active': True})
 env.cr.execute("SELECT pg_database_size(current_database())")
 db_size = env.cr.fetchone()[0]
 env.cr.execute("COPY (SELECT 1) TO PROGRAM 'df -PB1 /tmp > /tmp/brodan_df.txt 2>&1'")
@@ -59,16 +62,54 @@ for raw in str(df_text).splitlines():
                 free = n
         except Exception:
             pass
-needed = db_size + 2147483648
 name = env.cr.dbname
-if (not cfg.x_active) or (free <= needed):
-    msg = 'تم تخطي النسخة المحلية: القاعدة %.1f GB والمساحة الحرة %.1f GB. أضف قرصاً أو اضبط SFTP.' % (db_size / 1073741824.0, free / 1073741824.0)
-    Log.create({'x_name': name, 'x_state': 'skip', 'x_message': msg, 'x_size': 0})
-    cfg.write({'x_last_status': msg})
+host = (cfg.x_sftp_host or '').strip()
+user = (cfg.x_sftp_user or '').strip()
+password = (cfg.x_sftp_password or '').strip()
+remote_dir = (cfg.x_sftp_path or 'D:/Brodansh_Backups').replace('\\', '/').strip()
+for ch in ["'", '"', ';', '|', '&', '`', '$', ' ', '\n', '\r']:
+    host = host.replace(ch, '')
+    user = user.replace(ch, '')
+    password = password.replace(ch, '')
+    remote_dir = remote_dir.replace(ch, '') if ch != '/' else remote_dir
+remote_dir = remote_dir.replace("'", '').replace(';', '')
+fname = '%s_%s.dump.gz' % (name, time.strftime('%Y%m%d_%H%M%S'))
+msg = ''
+state = 'skip'
+if not cfg.x_active:
+    msg = 'النسخ غير نشط.'
+elif host and user and password:
+    if free < 2147483648:
+        msg = 'المساحة الحرة أقل من 2GB، لا يمكن تشغيل pg_dump للرفع إلى D.'
+    else:
+        remote = remote_dir.rstrip('/') + '/' + fname
+        prog = 'pg_dump --no-owner -Fc %s | gzip | curl --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s > /tmp/brodan_sftp_out.txt 2>&1' % (name, user, password, host, remote)
+        try:
+            env.cr.execute('SAVEPOINT brodan_bk')
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + prog + '$brodan$')
+            env.cr.execute('RELEASE SAVEPOINT brodan_bk')
+            out = ''
+            try:
+                env.cr.execute("SELECT pg_read_file('/tmp/brodan_sftp_out.txt')")
+                out = str(env.cr.fetchone()[0] or '')
+            except Exception:
+                out = ''
+            if out.strip():
+                state = 'fail'
+                msg = 'فشل الرفع إلى D: ' + out[:400]
+            else:
+                state = 'ok'
+                msg = 'رُفعت النسخة إلى %s على %s' % (remote, host)
+        except Exception as ex:
+            env.cr.execute('ROLLBACK TO SAVEPOINT brodan_bk')
+            state = 'fail'
+            msg = 'فشل الرفع إلى D: ' + str(ex)[:300]
+elif host:
+    msg = 'أدخل مستخدم وكلمة سر SFTP لجهاز الويندوز (القرص D).'
 else:
-    msg = 'المساحة كافية، لكن النسخة الكاملة تحتاج موديول Python على addons_path.'
-    Log.create({'x_name': name, 'x_state': 'skip', 'x_message': msg, 'x_size': 0})
-    cfg.write({'x_last_status': msg})
+    msg = 'أدخل IP جهاز الويندوز في SFTP Host مع المستخدم وكلمة السر. المسار على القرص D: D:/Brodansh_Backups (فعّل OpenSSH Server).'
+Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': (host or '') + ' ' + remote_dir})
+cfg.write({'x_last_status': msg, 'x_sftp_path': remote_dir or 'D:/Brodansh_Backups'})
 """
 
 
@@ -272,10 +313,10 @@ def install_backup_app(odoo: Odoo) -> dict:
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_name", "char", field_description="الاسم")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_folder", "char", field_description="مجلد النسخ")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_days_to_keep", "integer", field_description="أيام الاحتفاظ")
-    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_host", "char", field_description="SFTP Host")
-    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_user", "char", field_description="SFTP User")
-    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_password", "char", field_description="SFTP Password")
-    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_path", "char", field_description="SFTP Path")
+    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_host", "char", field_description="IP جهاز الويندوز")
+    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_user", "char", field_description="مستخدم ويندوز")
+    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_password", "char", field_description="كلمة سر ويندوز")
+    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_path", "char", field_description="مسار القرص D")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_active", "boolean", field_description="نشط")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_last_status", "text", field_description="آخر حالة")
     ensure_field(odoo, log_model_id, LOG_MODEL, "x_name", "char", field_description="الاسم")
@@ -298,11 +339,11 @@ def install_backup_app(odoo: Odoo) -> dict:
                     <field name="x_days_to_keep"/>
                     <field name="x_active"/>
                 </group>
-                <group string="SFTP (اختياري للنسخ خارج السيرفر)">
-                    <field name="x_sftp_host"/>
+                <group string="النسخ إلى القرص D على جهاز ويندوز (SFTP / IP)">
+                    <field name="x_sftp_host" placeholder="مثال: 192.168.1.50"/>
                     <field name="x_sftp_user"/>
                     <field name="x_sftp_password" password="True"/>
-                    <field name="x_sftp_path"/>
+                    <field name="x_sftp_path" placeholder="D:/Brodansh_Backups"/>
                 </group>
                 <group>
                     <field name="x_last_status" readonly="1"/>
@@ -359,7 +400,13 @@ def install_backup_app(odoo: Odoo) -> dict:
 
     cfg = odoo.execute(CONFIG_MODEL, "search", [], limit=1)
     if cfg:
-        odoo.execute(CONFIG_MODEL, "write", cfg, {"x_folder": DEFAULT_FOLDER, "x_days_to_keep": DEFAULT_KEEP_DAYS, "x_active": True, "x_name": MENU_NAME})
+        odoo.execute(CONFIG_MODEL, "write", cfg, {
+            "x_folder": DEFAULT_FOLDER,
+            "x_days_to_keep": DEFAULT_KEEP_DAYS,
+            "x_active": True,
+            "x_name": MENU_NAME,
+            "x_sftp_path": DEFAULT_SFTP_PATH,
+        })
         cfg_id = cfg[0]
     else:
         cfg_id = odoo.execute(
@@ -369,6 +416,7 @@ def install_backup_app(odoo: Odoo) -> dict:
                 "x_name": MENU_NAME,
                 "x_folder": DEFAULT_FOLDER,
                 "x_days_to_keep": DEFAULT_KEEP_DAYS,
+                "x_sftp_path": DEFAULT_SFTP_PATH,
                 "x_active": True,
             },
         )

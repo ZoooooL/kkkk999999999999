@@ -11,6 +11,7 @@ from odoo.service import db as db_service
 from .backup_config import (
     DEFAULT_FOLDER,
     DEFAULT_KEEP_DAYS,
+    DEFAULT_SFTP_PATH,
     SAFETY_MARGIN_BYTES,
     local_dump_allowed,
     skip_message,
@@ -29,7 +30,7 @@ class BrodanBackupConfig(models.Model):
     sftp_host = fields.Char()
     sftp_user = fields.Char()
     sftp_password = fields.Char()
-    sftp_path = fields.Char()
+    sftp_path = fields.Char(default=DEFAULT_SFTP_PATH)
     active = fields.Boolean(default=True)
     last_run = fields.Datetime(readonly=True)
     last_status = fields.Text(readonly=True)

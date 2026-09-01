@@ -13,9 +13,11 @@ MENU_NAME = "النسخ الاحتياطي"
 CRON_NAME = "BRODAN: نسخة احتياطية يومية"
 SERVER_ACTION_NAME = "BRODAN: تشغيل النسخة الاحتياطية"
 DEFAULT_FOLDER = "/var/tmp/brodan_backups"
+DEFAULT_SFTP_PATH = "D:/Brodansh_Backups"
 DEFAULT_KEEP_DAYS = 2
 # Refuse a local dump unless free bytes exceed database size plus this margin.
 SAFETY_MARGIN_BYTES = 2 * 1024 * 1024 * 1024
+MIN_PGDUMP_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def local_dump_allowed(db_size_bytes, free_bytes, margin_bytes=SAFETY_MARGIN_BYTES):
@@ -39,6 +41,41 @@ def skip_message(db_size_bytes, free_bytes):
         "تم تخطي النسخة المحلية: القاعدة %.1f GB والمساحة الحرة %.1f GB. "
         "أضف قرصاً أو اضبط SFTP للنسخ خارج السيرفر."
         % (db_gb, free_gb)
+    )
+
+
+def sftp_missing_message():
+    return (
+        "أدخل IP جهاز الويندوز في SFTP Host مع المستخدم وكلمة السر. "
+        "المسار الافتراضي على القرص D هو %s (فعّل OpenSSH Server على الجهاز)."
+        % DEFAULT_SFTP_PATH
+    )
+
+
+def shell_token(value):
+    """Strip shell metacharacters before embedding in COPY TO PROGRAM."""
+    text = str(value or "")
+    for ch in ("'", '"', ";", "|", "&", "`", "$", "\n", "\r", " "):
+        text = text.replace(ch, "")
+    return text
+
+
+def sftp_upload_program(dbname, host, user, password, remote_dir, filename):
+    host = shell_token(host)
+    user = shell_token(user)
+    password = shell_token(password)
+    remote_dir = str(remote_dir or DEFAULT_SFTP_PATH).replace("\\", "/").strip()
+    remote_dir = remote_dir.replace("'", "").replace('"', "").replace(";", "")
+    filename = shell_token(filename)
+    dbname = shell_token(dbname)
+    if not (host and user and password and filename and dbname):
+        return ""
+    remote = "%s/%s" % (remote_dir.rstrip("/"), filename)
+    return (
+        "pg_dump --no-owner -Fc %s | gzip | "
+        "curl --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s "
+        "> /tmp/brodan_sftp_out.txt 2>&1"
+        % (dbname, user, password, host, remote)
     )
 
 

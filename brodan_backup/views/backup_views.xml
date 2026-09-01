@@ -14,11 +14,11 @@
                         <field name="days_to_keep"/>
                         <field name="active"/>
                     </group>
-                    <group string="SFTP (اختياري)">
-                        <field name="sftp_host"/>
+                    <group string="النسخ إلى القرص D (SFTP / IP)">
+                        <field name="sftp_host" placeholder="192.168.1.50"/>
                         <field name="sftp_user"/>
                         <field name="sftp_password" password="True"/>
-                        <field name="sftp_path"/>
+                        <field name="sftp_path" placeholder="D:/Brodansh_Backups"/>
                     </group>
                     <group>
                         <field name="last_run" readonly="1"/>
