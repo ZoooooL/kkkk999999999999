@@ -68,6 +68,28 @@
                     color: #0B3C5D !important;
                     font-weight: 800 !important;
                 }
+                .brodan-ledger-meta {
+                    color: #5A6B7C;
+                    font-size: 12px;
+                    margin-top: 0;
+                }
+                .double-border-table thead {
+                    display: table-header-group !important;
+                }
+                .double-border-table tbody {
+                    display: table-row-group !important;
+                }
+                .double-border-table tr {
+                    page-break-inside: avoid;
+                }
+                .brodan-partner-page-break {
+                    page-break-after: always !important;
+                    break-after: page !important;
+                    height: 0 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    border: 0 !important;
+                }
             </style>
         </xpath>
     </template>
@@ -78,12 +100,42 @@
         partner record's env, and read the wizard checkbox by form id.
     -->
     <template id="report_partnerledger_brodan_table" inherit_id="accounting_pdf_reports.report_partnerledger">
+        <xpath expr="//t[@t-foreach='docs']" position="before">
+            <t t-set="pl_form" t-value="data.get('form') or {}"/>
+            <t t-set="pl_wiz_id" t-value="pl_form.get('id')"/>
+            <t t-set="pl_wiz" t-value="res_company.env['account.report.partner.ledger'].browse(pl_wiz_id) if pl_wiz_id else res_company.env['account.report.partner.ledger']"/>
+            <t t-set="tag_ids" t-value="list(pl_form.get('x_partner_category_ids') or [])"/>
+            <t t-set="tag_ids" t-value="list(pl_wiz.x_partner_category_ids.ids) if (not tag_ids and pl_wiz_id and pl_wiz.exists()) else tag_ids"/>
+            <t t-set="report_partners" t-value="[p for p in (docs or []) if (not tag_ids or [tid for tid in tag_ids if tid in p.category_id.ids])]"/>
+        </xpath>
+        <xpath expr="//t[@t-foreach='docs']" position="attributes">
+            <attribute name="t-foreach">report_partners</attribute>
+        </xpath>
+
+        <xpath expr="//p[contains(@class, 'text-center')][.//span[@t-esc='o.name']]" position="after">
+            <p class="text-center brodan-ledger-meta">
+                <t t-if="o.user_id">
+                    <strong>المندوب: </strong>
+                    <span t-esc="o.user_id.name"/>
+                </t>
+                <t t-if="o.category_id">
+                    <t t-if="o.user_id"> — </t>
+                    <strong>التصنيف: </strong>
+                    <span t-esc="', '.join(o.category_id.mapped('name'))"/>
+                </t>
+            </p>
+        </xpath>
+
         <xpath expr="//div[contains(@class, 'page')]" position="inside">
-            <t t-if="not docs">
+            <t t-if="not report_partners">
                 <div class="brodan-no-data">
-                    لا توجد بيانات للشركاء المحددين في هذه الفترة. تحقق من التواريخ والشريك ودفاتر اليومية.
+                    لا توجد بيانات للشركاء المحددين في هذه الفترة. تحقق من التواريخ والتصنيف والشريك ودفاتر اليومية.
                 </div>
             </t>
+        </xpath>
+
+        <xpath expr="//table[contains(@class, 'double-border-table')]" position="after">
+            <div t-if="not o_last" class="brodan-partner-page-break"/>
         </xpath>
 
         <xpath expr="//table[contains(@class, 'double-border-table')]/tbody" position="replace">

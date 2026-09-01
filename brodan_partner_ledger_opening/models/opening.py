@@ -95,3 +95,40 @@ def footer_totals(opening_debit, opening_credit, period_debit, period_credit):
     debit = float(opening_debit or 0.0) + float(period_debit or 0.0)
     credit = float(opening_credit or 0.0) + float(period_credit or 0.0)
     return debit, credit, debit - credit
+
+
+def ids_from_form_m2m(value):
+    """Normalize a many2many value from wizard `read()` / form data to a list of ids."""
+    if not value:
+        return []
+    if isinstance(value, (list, tuple)):
+        out = []
+        for item in value:
+            if isinstance(item, int):
+                out.append(item)
+            elif isinstance(item, (list, tuple)) and item:
+                out.append(item[0])
+            elif isinstance(item, dict) and item.get("id"):
+                out.append(item["id"])
+        return out
+    if isinstance(value, int):
+        return [value]
+    return []
+
+
+def filter_partner_ids_by_tags(selected_partner_ids, tagged_partner_ids, tag_ids):
+    """If tags are set, keep tagged partners; intersect when partners were also chosen."""
+    if not tag_ids:
+        return list(selected_partner_ids or [])
+    tagged = list(tagged_partner_ids or [])
+    if selected_partner_ids:
+        selected = set(selected_partner_ids)
+        return [pid for pid in tagged if pid in selected]
+    return tagged
+
+
+def partner_has_tags(partner_tag_ids, tag_ids):
+    if not tag_ids:
+        return True
+    wanted = set(tag_ids)
+    return any(tid in wanted for tid in (partner_tag_ids or []))

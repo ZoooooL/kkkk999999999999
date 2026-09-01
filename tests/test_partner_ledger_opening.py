@@ -139,6 +139,33 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
         self.assertIn('name="x_show_opening_balance"', arch)
         self.assertIn("date_from", arch)
 
+    def test_wizard_view_has_tags_field(self):
+        arch = (MODULE / "views" / "partner_ledger_wizard.xml").read_text(encoding="utf-8")
+        self.assertIn('name="x_partner_category_ids"', arch)
+        self.assertIn("علامات التصنيف", arch)
+        self.assertIn("widget=\"many2many_tags\"", arch)
+
+    def test_qweb_page_break_and_tag_filter(self):
+        arch = (MODULE / "report" / "report_partner_ledger.xml").read_text(encoding="utf-8")
+        self.assertIn("brodan-partner-page-break", arch)
+        self.assertIn("not o_last", arch)
+        self.assertIn("report_partners", arch)
+        self.assertIn("x_partner_category_ids", arch)
+        self.assertIn("المندوب:", arch)
+        self.assertIn("التصنيف:", arch)
+
+    def test_filter_partner_ids_by_tags(self):
+        from opening import filter_partner_ids_by_tags, ids_from_form_m2m, partner_has_tags
+
+        self.assertEqual(filter_partner_ids_by_tags([1, 2], [2, 3, 4], []), [1, 2])
+        self.assertEqual(filter_partner_ids_by_tags([], [2, 3, 4], [10]), [2, 3, 4])
+        self.assertEqual(filter_partner_ids_by_tags([1, 2, 9], [2, 3, 4], [10]), [2])
+        self.assertEqual(ids_from_form_m2m([1, 2]), [1, 2])
+        self.assertEqual(ids_from_form_m2m([[3, "Tag"]]), [3])
+        self.assertTrue(partner_has_tags([10, 11], [11]))
+        self.assertFalse(partner_has_tags([10], [11]))
+        self.assertTrue(partner_has_tags([], []))
+
 
 if __name__ == "__main__":
     unittest.main()

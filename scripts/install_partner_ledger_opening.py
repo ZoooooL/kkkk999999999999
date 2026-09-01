@@ -20,6 +20,24 @@ MODULE = "brodan_partner_ledger_opening"
 MODULE_DIR = ROOT / MODULE
 WIZARD_XML = MODULE_DIR / "views" / "partner_ledger_wizard.xml"
 REPORT_XML = MODULE_DIR / "report" / "report_partner_ledger.xml"
+TAG_FIELD_NAME = "x_partner_category_ids"
+TAG_REL_TABLE = "x_account_report_pl_category_rel"
+TAG_AUTOMATION_NAME = "دفتر الشركاء: تعبئة الشركاء من علامات التصنيف"
+TAG_FILL_CODE = """
+if env.context.get('brodan_pl_skip_tag_fill'):
+    pass
+else:
+    tags = record.x_partner_category_ids
+    if tags:
+        tagged = env['res.partner'].search([('category_id', 'in', tags.ids)])
+        if record.partner_ids:
+            keep_ids = [pid for pid in record.partner_ids.ids if pid in tagged.ids]
+        else:
+            keep_ids = tagged.ids
+        current_ids = record.partner_ids.ids
+        if sorted(keep_ids) != sorted(current_ids):
+            record.with_context(brodan_pl_skip_tag_fill=True).write({'partner_ids': [(6, 0, keep_ids)]})
+"""
 
 
 def load_dotenv(path: Path) -> None:
@@ -91,6 +109,127 @@ def connect():
     return execute
 
 
+def upsert_xmlid(execute, xmlid: str, model: str, res_id: int) -> None:
+    module, name = xmlid.split(".", 1)
+    found = execute(
+        "ir.model.data",
+        "search_read",
+        [["module", "=", module], ["name", "=", name]],
+        fields=["res_id", "model"],
+        limit=1,
+    )
+    if found:
+        if found[0]["res_id"] != res_id or found[0]["model"] != model:
+            execute(
+                "ir.model.data",
+                "write",
+                [found[0]["id"]],
+                {"res_id": res_id, "model": model, "noupdate": False},
+            )
+        return
+    execute(
+        "ir.model.data",
+        "create",
+        {
+            "module": module,
+            "name": name,
+            "model": model,
+            "res_id": res_id,
+            "noupdate": False,
+        },
+    )
+
+
+def ensure_category_field(execute) -> int:
+    model_ids = execute(
+        "ir.model",
+        "search",
+        [["model", "=", "account.report.partner.ledger"]],
+        limit=1,
+    )
+    if not model_ids:
+        raise SystemExit("account.report.partner.ledger is missing")
+    found = execute(
+        "ir.model.fields",
+        "search",
+        [["model", "=", "account.report.partner.ledger"], ["name", "=", TAG_FIELD_NAME]],
+        limit=1,
+    )
+    values = {
+        "name": TAG_FIELD_NAME,
+        "field_description": "علامات التصنيف",
+        "help": "اطبع كل الشركاء بهذه العلامات في ملف واحد. كل عميل يبدأ في صفحة جديدة.",
+        "model_id": model_ids[0],
+        "model": "account.report.partner.ledger",
+        "ttype": "many2many",
+        "relation": "res.partner.category",
+        "relation_table": TAG_REL_TABLE,
+        "column1": "wizard_id",
+        "column2": "category_id",
+        "state": "manual",
+        "copied": True,
+        "store": True,
+    }
+    if found:
+        execute("ir.model.fields", "write", found, values)
+        field_id = found[0]
+    else:
+        field_id = execute("ir.model.fields", "create", values)
+    upsert_xmlid(
+        execute,
+        MODULE + ".field_account_report_partner_ledger_x_partner_category_ids",
+        "ir.model.fields",
+        field_id,
+    )
+    return field_id
+
+
+def ensure_tag_automation(execute) -> dict:
+    model_ids = execute(
+        "ir.model",
+        "search",
+        [["model", "=", "account.report.partner.ledger"]],
+        limit=1,
+    )
+    autos = execute(
+        "base.automation",
+        "search",
+        [["name", "=", TAG_AUTOMATION_NAME]],
+        limit=1,
+    )
+    auto_vals = {
+        "name": TAG_AUTOMATION_NAME,
+        "model_id": model_ids[0],
+        "trigger": "on_create_or_write",
+        "active": True,
+    }
+    if autos:
+        execute("base.automation", "write", autos, auto_vals)
+        auto_id = autos[0]
+    else:
+        auto_id = execute("base.automation", "create", auto_vals)
+    actions = execute(
+        "ir.actions.server",
+        "search",
+        [["base_automation_id", "=", auto_id], ["state", "=", "code"]],
+        limit=1,
+    )
+    action_vals = {
+        "name": "Execute Code",
+        "model_id": model_ids[0],
+        "state": "code",
+        "usage": "base_automation",
+        "base_automation_id": auto_id,
+        "code": TAG_FILL_CODE,
+    }
+    if actions:
+        execute("ir.actions.server", "write", actions, action_vals)
+        action_id = actions[0]
+    else:
+        action_id = execute("ir.actions.server", "create", action_vals)
+    return {"automation": auto_id, "action": action_id}
+
+
 def upsert_view(execute, xmlid: str, values: dict) -> int:
     module, name = xmlid.split(".", 1)
     found = execute(
@@ -120,6 +259,8 @@ def upsert_view(execute, xmlid: str, values: dict) -> int:
 
 
 def apply_views(execute) -> dict:
+    field_id = ensure_category_field(execute)
+    automation = ensure_tag_automation(execute)
     partner_view = execute(
         "ir.model.data",
         "search_read",
@@ -201,7 +342,13 @@ def apply_views(execute) -> dict:
             mods,
             {"state": "installed", "latest_version": module_version()},
         )
-    return {"wizard": wizard_id, "styles": styles_id, "table": table_id}
+    return {
+        "wizard": wizard_id,
+        "styles": styles_id,
+        "table": table_id,
+        "tag_field": field_id,
+        **automation,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
