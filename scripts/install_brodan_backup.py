@@ -101,16 +101,17 @@ elif od_token:
         cleaned = od_token
         if '{' in cleaned and '}' in cleaned:
             cleaned = cleaned[cleaned.find('{'):cleaned.rfind('}')+1]
-        env.cr.execute('CREATE TEMP TABLE IF NOT EXISTS brodan_od_token (t text)')
-        env.cr.execute('DELETE FROM brodan_od_token')
-        env.cr.execute('INSERT INTO brodan_od_token (t) VALUES (%s)', (cleaned,))
-        install = 'if [ ! -x /var/tmp/brodan_rclone/rclone ]; then curl -fsSL -o /var/tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip && mkdir -p /var/tmp/brodan_rclone_extract /var/tmp/brodan_rclone && unzip -o /var/tmp/rclone.zip -d /var/tmp/brodan_rclone_extract && RDIR=$(find /var/tmp/brodan_rclone_extract -maxdepth 1 -type d -name rclone-* | head -n 1) && cp "$RDIR/rclone" /var/tmp/brodan_rclone/rclone && chmod 755 /var/tmp/brodan_rclone/rclone && rm -rf /var/tmp/rclone.zip /var/tmp/brodan_rclone_extract; fi; /var/tmp/brodan_rclone/rclone version > /tmp/brodan_rclone_install.txt 2>&1'
-        write_conf = 'python3 -c "import sys,csv,io,os; raw=sys.stdin.read(); token=next(csv.reader(io.StringIO(raw)))[0].strip(); open(\'/var/tmp/brodan-rclone.conf\',\'w\').write(\'[onedrive]\'+chr(10)+\'type = onedrive\'+chr(10)+\'drive_type = %s\'+chr(10)+\'token = \'+token+chr(10)); os.chmod(\'/var/tmp/brodan-rclone.conf\', 0o600)"' % od_type
-        probe = 'sh -c \'/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf --onedrive-drive-type %s --non-interactive lsd onedrive: --max-depth 1 --retries 1 --low-level-retries 1 --timeout 20s --contimeout 8s > /tmp/brodan_od_probe.txt 2>&1; echo EXIT:$? >> /tmp/brodan_od_probe.txt\'' % od_type
+        env.cr.execute('CREATE TEMP TABLE IF NOT EXISTS brodan_od_b64 (t text)')
+        env.cr.execute('DELETE FROM brodan_od_b64')
+        env.cr.execute("SELECT translate(encode(convert_to(%s, 'UTF8'), 'base64'), E'\\n', '')", (cleaned,))
+        b64 = env.cr.fetchone()[0]
+        env.cr.execute('INSERT INTO brodan_od_b64 (t) VALUES (%s)', (b64,))
+        install = 'if [ ! -x /var/tmp/brodan_rclone/rclone ]; then curl -fsSL -o /var/tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip && mkdir -p /var/tmp/brodan_rclone_extract /var/tmp/brodan_rclone && unzip -o /var/tmp/rclone.zip -d /var/tmp/brodan_rclone_extract && RDIR=$(find /var/tmp/brodan_rclone_extract -maxdepth 1 -type d -name rclone-* | head -n 1) && cp "$RDIR/rclone" /var/tmp/brodan_rclone/rclone && chmod 755 /var/tmp/brodan_rclone/rclone && rm -rf /var/tmp/rclone.zip /var/tmp/brodan_rclone_extract; fi; cat > /var/tmp/brodan_write_rclone.py << '"'"'BRD'"'"'\nimport sys, base64, os\nraw = sys.stdin.read().strip().replace(chr(10), "").replace(chr(13), "")\nif raw.startswith(chr(34)) and raw.endswith(chr(34)):\n    raw = raw[1:-1]\ntoken = base64.b64decode(raw).decode()\nopen("/var/tmp/brodan-rclone.conf", "w").write("[onedrive]" + chr(10) + "type = onedrive" + chr(10) + "drive_type = personal" + chr(10) + "token = " + token + chr(10))\nos.chmod("/var/tmp/brodan-rclone.conf", 0o600)\nBRD\n /var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf version > /tmp/brodan_rclone_install.txt 2>&1'
+        probe = '/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf lsd onedrive: --max-depth 1 --retries 1 --low-level-retries 1 --timeout 20s --contimeout 8s > /tmp/brodan_od_probe.txt 2>&1; echo EXIT:$? >> /tmp/brodan_od_probe.txt'
         try:
             env.cr.execute('SAVEPOINT brodan_od1')
             env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + install + '$brodan$')
-            env.cr.execute('COPY brodan_od_token TO PROGRAM $brodan$' + write_conf + '$brodan$')
+            env.cr.execute('COPY brodan_od_b64 TO PROGRAM $brodan$python3 /var/tmp/brodan_write_rclone.py$brodan$')
             env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + probe + '$brodan$')
             env.cr.execute('RELEASE SAVEPOINT brodan_od1')
             pout = ''
@@ -123,7 +124,7 @@ elif od_token:
                 state = 'fail'
                 msg = 'فشل ربط OneDrive. تأكد أن الرمز كامل من سكربت الربط وأن المساحة كافية (ليس الحساب المجاني 5GB). تفصيل: ' + pout.strip()[:350]
             else:
-                dump = 'nohup sh -c "/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf --onedrive-drive-type %s --non-interactive mkdir onedrive:%s; pg_dump --no-owner -Fc %s | gzip | /var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf --onedrive-drive-type %s --non-interactive rcat --retries 3 onedrive:%s/%s" >/tmp/brodan_od_out.txt 2>&1 &' % (od_type, od_folder, name, od_type, od_folder, fname)
+                dump = 'nohup sh -c "/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf mkdir onedrive:%s; pg_dump --no-owner -Fc %s | gzip | /var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf rcat --retries 3 onedrive:%s/%s" >/tmp/brodan_od_out.txt 2>&1 &' % (od_folder, name, od_folder, fname)
                 env.cr.execute('SAVEPOINT brodan_od2')
                 env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
                 env.cr.execute('RELEASE SAVEPOINT brodan_od2')

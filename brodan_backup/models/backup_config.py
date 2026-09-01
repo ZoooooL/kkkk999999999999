@@ -128,6 +128,21 @@ def onedrive_missing_message():
     )
 
 
+def rclone_write_conf_program():
+    """Install a stdin base64 token writer used by the live server action."""
+    return (
+        "cat > /var/tmp/brodan_write_rclone.py << 'BRD'\n"
+        "import sys, base64, os\n"
+        "raw = sys.stdin.read().strip().replace(chr(10), '').replace(chr(13), '')\n"
+        "if raw.startswith('\"') and raw.endswith('\"'):\n"
+        "    raw = raw[1:-1]\n"
+        "token = base64.b64decode(raw).decode()\n"
+        "open('/var/tmp/brodan-rclone.conf', 'w').write('[onedrive]' + chr(10) + 'type = onedrive' + chr(10) + 'drive_type = personal' + chr(10) + 'token = ' + token + chr(10))\n"
+        "os.chmod('/var/tmp/brodan-rclone.conf', 0o600)\n"
+        "BRD"
+    )
+
+
 def rclone_install_program():
     return (
         "if [ ! -x %s ]; then "
@@ -137,8 +152,9 @@ def rclone_install_program():
         "RDIR=$(find /var/tmp/brodan_rclone_extract -maxdepth 1 -type d -name rclone-* | head -n 1) && "
         "cp \"$RDIR/rclone\" %s && chmod 755 %s && "
         "rm -rf %s /var/tmp/brodan_rclone_extract; "
-        "fi; %s version > /tmp/brodan_rclone_install.txt 2>&1"
-        % (RCLONE_BIN, RCLONE_ZIP, RCLONE_ZIP, RCLONE_BIN, RCLONE_BIN, RCLONE_ZIP, RCLONE_BIN)
+        "fi; %s --config /var/tmp/brodan-rclone.conf version > /tmp/brodan_rclone_install.txt 2>&1; "
+        "%s"
+        % (RCLONE_BIN, RCLONE_ZIP, RCLONE_ZIP, RCLONE_BIN, RCLONE_BIN, RCLONE_ZIP, RCLONE_BIN, rclone_write_conf_program())
     )
 
 

@@ -65,6 +65,7 @@ class BrodanBackupTests(unittest.TestCase):
         self.assertIn("OneDrive", mod.onedrive_missing_message())
         self.assertIn("5GB", mod.onedrive_missing_message())
         install = mod.rclone_install_program()
+        self.assertIn("brodan_write_rclone.py", install)
         self.assertIn("downloads.rclone.org", install)
         self.assertIn("/var/tmp/brodan_rclone/rclone", install)
         cmd = mod.rclone_rcat_program("brodansh", "Brodansh_Backups", "brodansh_1.dump.gz")
