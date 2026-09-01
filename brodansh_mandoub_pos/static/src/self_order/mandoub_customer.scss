@@ -1,0 +1,77 @@
+.mandoub-kiosk-customer {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(244, 242, 246, 0.96);
+}
+
+.mandoub-kiosk-customer-card {
+    width: min(28rem, 100%);
+    padding: 1.5rem;
+    border-radius: 1rem;
+    background: #fff;
+    box-shadow: 0 12px 40px rgba(47, 16, 68, 0.12);
+}
+
+.mandoub-kiosk-customer-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 1.35rem;
+    font-weight: 800;
+}
+
+.mandoub-kiosk-customer-input {
+    text-align: center;
+    font-size: 1.25rem;
+    min-height: 3.25rem;
+}
+
+.mandoub-kiosk-customer-matches {
+    display: flex;
+    flex-direction: column;
+    max-height: 12rem;
+    margin-top: 0.5rem;
+    overflow: auto;
+    border: 1px solid #e6e0ea;
+    border-radius: 0.75rem;
+}
+
+.mandoub-kiosk-customer-match {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 0;
+    background: transparent;
+    text-align: start;
+}
+
+.mandoub-kiosk-customer-match:hover,
+.mandoub-kiosk-customer-match:focus {
+    background: #f3eef7;
+}
+
+.mandoub-kiosk-customer-error {
+    margin: 0.75rem 0 0;
+    color: #9b111e;
+    font-weight: 700;
+}
+
+.mandoub-kiosk-customer-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.65rem 1rem;
+    border: 0;
+    background: #017e84;
+    color: #fff;
+    font-size: 1.05rem;
+}

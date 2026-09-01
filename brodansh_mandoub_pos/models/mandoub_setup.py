@@ -363,3 +363,77 @@ def quotation_vals_from_pos_cart(payload, defaults):
     if team_id:
         vals["team_id"] = team_id
     return {key: value for key, value in vals.items() if value not in (None,)}
+
+
+MANDOUB_CUSTOMER_QUERY_PARAM = "customer"
+MANDOUB_CUSTOMER_PLACEHOLDER = "اكتب اسم العميل"
+MANDOUB_CUSTOMER_START_LABEL = "بدء الطلب"
+MANDOUB_CUSTOMER_REQUIRED_MSG = "اكتب اسم العميل أولاً ثم ابدأ الطلب."
+
+
+def is_mandoub_customer_app(app_name="", start_url=""):
+    """True for the mandoub kiosk PWA install page and /pos-self URLs."""
+    if is_mandoub_pos_name(app_name):
+        return True
+    path = (start_url or "").lower()
+    return "pos-self" in path
+
+
+def partner_search_domain(query, company_id):
+    """Domain for typing a customer name/phone. None if the query is empty."""
+    name = normalize_arabic_name(query)
+    if not name:
+        return None
+    company_domain = ["|", ("company_id", "=", False), ("company_id", "=", company_id)]
+    text_domain = [
+        "|",
+        "|",
+        ("name", "ilike", name),
+        ("phone", "ilike", name),
+        ("mobile", "ilike", name),
+    ]
+    return company_domain + text_domain
+
+
+def partner_create_vals(name, company_id):
+    return {
+        "name": normalize_arabic_name(name),
+        "company_id": company_id,
+        "customer_rank": 1,
+    }
+
+
+def partner_public_payload(partner_id, name, phone="", city=""):
+    return {
+        "id": int(partner_id),
+        "name": name,
+        "phone": phone or "",
+        "city": city or "",
+    }
+
+
+def pick_or_create_partner_action(query, match_names):
+    """How the kiosk should treat a typed customer name."""
+    typed = normalize_arabic_name(query)
+    if not typed:
+        return "empty"
+    for existing in match_names or []:
+        if normalize_arabic_name(existing) == typed:
+            return "use_existing"
+    return "create"
+
+
+def append_customer_query(start_url, customer_name):
+    """Attach the typed customer to a kiosk start URL."""
+    url = start_url or ""
+    name = normalize_arabic_name(customer_name)
+    if not url or not name:
+        return url
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query[MANDOUB_CUSTOMER_QUERY_PARAM] = name
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )

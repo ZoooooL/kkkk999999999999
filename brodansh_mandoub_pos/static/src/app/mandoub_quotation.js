@@ -15,7 +15,7 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
     const { PosStore } = require("@point_of_sale/app/store/pos_store");
     const { PaymentScreen } = require("@point_of_sale/app/screens/payment_screen/payment_screen");
     const { ProductScreen } = require("@point_of_sale/app/screens/product_screen/product_screen");
-    const { onMounted, onPatched } = require("@odoo/owl");
+    const { onMounted, onPatched, useState } = require("@odoo/owl");
 
     const MANDOUB_POS_PREFIX = "مندوب —";
     const FACTORY_WAREHOUSE_CODE = "WH-MS";
@@ -765,13 +765,80 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
         },
     });
 
+    function partnerDisplay(partner) {
+        if (!partner) {
+            return "";
+        }
+        return partner.name || partner.display_name || "";
+    }
+
+    function partnerPhone(partner) {
+        if (!partner) {
+            return "";
+        }
+        return partner.phone || partner.mobile || "";
+    }
+
+    function currentOrderPartner(pos) {
+        const order = pos.get_order?.();
+        if (!order) {
+            return null;
+        }
+        if (order.get_partner) {
+            return order.get_partner();
+        }
+        return order.partner_id || null;
+    }
+
+    function assignOrderPartner(pos, partner) {
+        const order = pos.get_order?.();
+        if (!order || !partner) {
+            return;
+        }
+        if (order.set_partner) {
+            order.set_partner(partner);
+        } else if (order.update) {
+            order.update({ partner_id: partner });
+        } else {
+            order.partner_id = partner;
+        }
+    }
+
+    function localPartnerMatches(pos, query) {
+        const needle = (query || "").trim().toLowerCase();
+        if (!needle || !pos.models?.["res.partner"]) {
+            return [];
+        }
+        const records = pos.models["res.partner"].getAll?.() || [];
+        const matches = [];
+        for (const partner of records) {
+            const name = partnerDisplay(partner).toLowerCase();
+            const phone = partnerPhone(partner);
+            if (name.includes(needle) || phone.includes(query.trim())) {
+                matches.push(partner);
+            }
+            if (matches.length >= 12) {
+                break;
+            }
+        }
+        return matches;
+    }
+
     patch(ProductScreen.prototype, {
         setup() {
             super.setup(...arguments);
+            this.mandoubCustomer = useState({
+                query: partnerDisplay(currentOrderPartner(this.pos)),
+                matches: [],
+                error: "",
+            });
             onMounted(() => {
                 if (isMandoubQuotationPos(this.pos)) {
                     watchMandoubUi(this.pos);
                     loadMandoubWarehouseStock(this.pos);
+                    if (!this.mandoubCustomer.query) {
+                        this.mandoubCustomer.query = partnerDisplay(currentOrderPartner(this.pos));
+                    }
                 }
             });
             onPatched(() => {
@@ -780,11 +847,107 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 }
             });
         },
+        get showMandoubCustomerBar() {
+            return isMandoubQuotationPos(this.pos);
+        },
         get mandoubPayLabel() {
             return isMandoubQuotationPos(this.pos) ? _t(SAVE_PRINT_LABEL) : _t("Pay");
         },
         get mandoubPaymentLabel() {
             return isMandoubQuotationPos(this.pos) ? _t(SAVE_PRINT_LABEL) : _t("Payment");
+        },
+        onMandoubCustomerInput(ev) {
+            this.mandoubCustomer.query = ev.target.value;
+            this.mandoubCustomer.error = "";
+            this.searchMandoubCustomer(ev.target.value);
+        },
+        onMandoubCustomerFocus() {
+            if ((this.mandoubCustomer.query || "").trim()) {
+                this.searchMandoubCustomer(this.mandoubCustomer.query);
+            }
+        },
+        onMandoubCustomerKeydown(ev) {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                this.confirmMandoubCustomer();
+            }
+        },
+        async searchMandoubCustomer(query) {
+            const text = (query || "").trim();
+            if (!text) {
+                this.mandoubCustomer.matches = [];
+                return;
+            }
+            let matches = localPartnerMatches(this.pos, text);
+            if (matches.length < 3 && this.pos.data?.searchRead) {
+                try {
+                    const remote = await this.pos.data.searchRead("res.partner", [
+                        "|",
+                        "|",
+                        ["name", "ilike", text],
+                        ["phone", "ilike", text],
+                        ["mobile", "ilike", text],
+                    ]);
+                    if (Array.isArray(remote) && remote.length) {
+                        matches = remote;
+                    }
+                } catch (_error) {
+                    // Keep local matches when the live search is unavailable.
+                }
+            }
+            this.mandoubCustomer.matches = matches.slice(0, 12);
+        },
+        selectMandoubCustomer(partner) {
+            assignOrderPartner(this.pos, partner);
+            this.mandoubCustomer.query = partnerDisplay(partner);
+            this.mandoubCustomer.matches = [];
+            this.mandoubCustomer.error = "";
+        },
+        async confirmMandoubCustomer() {
+            const text = (this.mandoubCustomer.query || "").trim();
+            if (!text) {
+                this.mandoubCustomer.error = _t("اكتب اسم العميل أولاً ثم ابدأ الطلب.");
+                return;
+            }
+            const exact = (this.mandoubCustomer.matches || []).find(
+                (partner) => partnerDisplay(partner).replace("ـ", "").trim() === text
+            );
+            if (exact) {
+                this.selectMandoubCustomer(exact);
+                return;
+            }
+            const localExact = localPartnerMatches(this.pos, text).find(
+                (partner) => partnerDisplay(partner).replace("ـ", "").trim() === text
+            );
+            if (localExact) {
+                this.selectMandoubCustomer(localExact);
+                return;
+            }
+            try {
+                let partner = null;
+                if (this.pos.data?.create) {
+                    const created = await this.pos.data.create("res.partner", [
+                        { name: text, customer_rank: 1 },
+                    ]);
+                    partner = Array.isArray(created) ? created[0] : created;
+                } else if (this.pos.data?.call) {
+                    const partnerId = await this.pos.data.call("res.partner", "create", [
+                        { name: text, customer_rank: 1 },
+                    ]);
+                    partner = this.pos.models["res.partner"].get(partnerId) || {
+                        id: partnerId,
+                        name: text,
+                    };
+                }
+                if (partner) {
+                    this.selectMandoubCustomer(partner);
+                    return;
+                }
+            } catch (_error) {
+                this.mandoubCustomer.error = _t("تعذر حفظ العميل. أعد المحاولة.");
+                return;
+            }
+            this.mandoubCustomer.error = _t("تعذر حفظ العميل. أعد المحاولة.");
         },
     });
 

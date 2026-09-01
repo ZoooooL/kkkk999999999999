@@ -1,0 +1,18 @@
+.mandoub-scoped-customer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: min(26rem, 90%);
+    margin-top: 1.25rem;
+}
+
+.mandoub-scoped-customer-label {
+    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 800;
+}
+
+.mandoub-scoped-customer .form-control {
+    min-height: 3rem;
+    font-size: 1.15rem;
+}

@@ -272,6 +272,8 @@ class MandoubFrontendAssetTests(unittest.TestCase):
         self.assertIn("mandoubQuotationFormUrl", source)
         self.assertIn("mandoub-out-of-stock", source)
         self.assertIn("wholesaleLineQty", source)
+        self.assertIn("showMandoubCustomerBar", source)
+        self.assertIn("اكتب اسم العميل أولاً ثم ابدأ الطلب.", source)
 
     def test_kitchen_js_opens_sale_order_and_hides_products(self):
         js_path = ROOT / "brodansh_mandoub_pos" / "static" / "src" / "kitchen" / "mandoub_kitchen.js"

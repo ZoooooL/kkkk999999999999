@@ -49,3 +49,72 @@ article.product.mandoub-out-of-stock .product-name {
 .product .product-img {
     position: relative;
 }
+
+.product-screen {
+    flex-wrap: wrap;
+}
+
+.mandoub-customer-bar {
+    order: -1;
+    flex: 1 0 100%;
+    z-index: 20;
+    padding: 0.65rem 0.75rem 0.5rem;
+    background: #f6f3f8;
+    border-bottom: 1px solid #e0d7e8;
+}
+
+.mandoub-customer-bar-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 800;
+}
+
+.mandoub-customer-bar-wrap {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.mandoub-customer-bar-input {
+    flex: 1 1 auto;
+    min-height: 2.75rem;
+    font-size: 1.05rem;
+}
+
+.mandoub-customer-bar-btn {
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.mandoub-customer-bar-matches {
+    display: flex;
+    flex-direction: column;
+    max-height: 10rem;
+    margin-top: 0.4rem;
+    overflow: auto;
+    background: #fff;
+    border: 1px solid #e0d7e8;
+    border-radius: 0.5rem;
+}
+
+.mandoub-customer-bar-match {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: 0;
+    background: transparent;
+    text-align: start;
+}
+
+.mandoub-customer-bar-match:hover,
+.mandoub-customer-bar-match:focus {
+    background: #f3eef7;
+}
+
+.mandoub-customer-bar-error {
+    margin: 0.4rem 0 0;
+    color: #9b111e;
+    font-weight: 700;
+}

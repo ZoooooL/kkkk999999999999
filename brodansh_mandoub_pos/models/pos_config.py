@@ -34,6 +34,38 @@ class PosConfig(models.Model):
                 fields_list.append(name)
         return fields_list
 
+    @api.model
+    def _load_pos_self_data_fields(self, pos_config_id):
+        fields_list = super()._load_pos_self_data_fields(pos_config_id)
+        for name in ("mandoub_quotation_mode", "name"):
+            if name not in fields_list:
+                fields_list.append(name)
+        return fields_list
+
+    def _load_self_data_models(self):
+        models = super()._load_self_data_models()
+        if "res.partner" not in models:
+            models.append("res.partner")
+        return models
+
+    def action_open_wizard(self):
+        """Open mandoub kiosks on the ordering screen, not the PWA install page."""
+        self.ensure_one()
+        if not self.is_mandoub_quotation_pos():
+            return super().action_open_wizard()
+        if not self.current_session_id:
+            self._check_before_creating_new_session()
+            session = self.env["pos.session"].create(
+                {"user_id": self.env.uid, "config_id": self.id}
+            )
+            session.set_opening_control(0, "")
+            self._notify("STATUS", {"status": "open"})
+        return {
+            "type": "ir.actions.act_url",
+            "url": self._get_self_order_route(),
+            "target": "new",
+        }
+
     def action_open_mandoub_setup_wizard(self):
         return {
             "type": "ir.actions.act_window",
