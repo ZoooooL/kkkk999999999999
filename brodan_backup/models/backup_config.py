@@ -132,12 +132,28 @@ def rclone_write_conf_program():
     """Install a stdin base64 token writer used by the live server action."""
     return (
         "cat > /var/tmp/brodan_write_rclone.py << 'BRD'\n"
-        "import sys, base64, os\n"
+        "import sys, base64, os, json, urllib.request\n"
         "raw = sys.stdin.read().strip().replace(chr(10), '').replace(chr(13), '')\n"
-        "if raw.startswith('\"') and raw.endswith('\"'):\n"
+        "if raw.startswith(chr(34)) and raw.endswith(chr(34)):\n"
         "    raw = raw[1:-1]\n"
         "token = base64.b64decode(raw).decode()\n"
-        "open('/var/tmp/brodan-rclone.conf', 'w').write('[onedrive]' + chr(10) + 'type = onedrive' + chr(10) + 'drive_type = personal' + chr(10) + 'token = ' + token + chr(10))\n"
+        "drive_id = ''\n"
+        "drive_type = 'personal'\n"
+        "try:\n"
+        "    obj = json.loads(token)\n"
+        "    access = str(obj.get('access_token') or '')\n"
+        "    if access:\n"
+        "        req = urllib.request.Request('https://graph.microsoft.com/v1.0/me/drive?$select=id,driveType', headers={'Authorization': 'Bearer ' + access})\n"
+        "        with urllib.request.urlopen(req, timeout=20) as resp:\n"
+        "            info = json.loads(resp.read().decode())\n"
+        "            drive_id = str(info.get('id') or '')\n"
+        "            drive_type = str(info.get('driveType') or 'personal')\n"
+        "except Exception:\n"
+        "    pass\n"
+        "lines = ['[onedrive]', 'type = onedrive', 'drive_type = ' + drive_type, 'token = ' + token]\n"
+        "if drive_id:\n"
+        "    lines.insert(3, 'drive_id = ' + drive_id)\n"
+        "open('/var/tmp/brodan-rclone.conf', 'w').write(chr(10).join(lines) + chr(10))\n"
         "os.chmod('/var/tmp/brodan-rclone.conf', 0o600)\n"
         "BRD"
     )
@@ -176,7 +192,7 @@ def rclone_rcat_program(dbname, folder, filename):
 
 def rclone_probe_program():
     return (
-        "%s --config %s lsd onedrive: --max-depth 1 --retries 1 "
+        "%s --config %s lsd --onedrive-drive-type personal onedrive: --max-depth 1 --retries 1 "
         "--low-level-retries 1 --timeout 20s --contimeout 8s "
         "> /tmp/brodan_od_probe.txt 2>&1"
         % (RCLONE_BIN, RCLONE_CONF)

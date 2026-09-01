@@ -76,7 +76,7 @@ class BrodanBackupTests(unittest.TestCase):
         self.assertIn("nohup sh -c", cmd)
         self.assertEqual(mod.rclone_rcat_program("", "Brodansh_Backups", "f"), "")
         probe = mod.rclone_probe_program()
-        self.assertIn("lsd onedrive:", probe)
+        self.assertIn("lsd --onedrive-drive-type personal onedrive:", probe)
         self.assertIn("--contimeout 8s", probe)
 
 
