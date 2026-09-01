@@ -13,8 +13,8 @@ MENU_NAME = "النسخ الاحتياطي"
 CRON_NAME = "BRODAN: نسخة احتياطية يومية"
 SERVER_ACTION_NAME = "BRODAN: تشغيل النسخة الاحتياطية"
 DEFAULT_FOLDER = "/var/tmp/brodan_backups"
-DEFAULT_SFTP_PATH = "D:/Zool Sulotion"
-DEFAULT_SFTP_HOST = "192.168.8.18"
+DEFAULT_SFTP_PATH = "/D:/Zool Sulotion"
+DEFAULT_SFTP_HOST = "100.78.222.34"
 DEFAULT_SFTP_USER = "lenovo"
 DEFAULT_KEEP_DAYS = 2
 DEFAULT_ONEDRIVE_FOLDER = "Brodansh_Backups"
@@ -69,25 +69,6 @@ def unreachable_sftp_message(host, detail=""):
     ) + extra
 
 
-def sftp_probe_program(host, user, password, remote_dir):
-    """Tiny SFTP upload used to fail fast before starting a 50GB dump."""
-    host = shell_token(host)
-    user = shell_token(user)
-    password = shell_token(password)
-    remote_dir = str(remote_dir or DEFAULT_SFTP_PATH).replace("\\", "/").strip()
-    remote_dir = remote_dir.replace("'", "").replace('"', "").replace(";", "")
-    if not (host and user and password):
-        return ""
-    remote = "%s/brodan_sftp_probe.txt" % remote_dir.rstrip("/")
-    remote = remote.replace(" ", "%20")
-    return (
-        "printf brodan-sftp-ok | curl --connect-timeout 8 --max-time 20 "
-        "--ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s "
-        "> /tmp/brodan_sftp_probe.txt 2>&1"
-        % (user, password, host, remote)
-    )
-
-
 def shell_token(value):
     """Strip shell metacharacters before embedding in COPY TO PROGRAM."""
     text = str(value or "")
@@ -96,18 +77,41 @@ def shell_token(value):
     return text
 
 
+def sftp_remote_url(remote_dir, filename=""):
+    """Build an SFTP URL path. Windows OpenSSH uses /D:/folder; curl wants host/D:/folder."""
+    remote_dir = str(remote_dir or DEFAULT_SFTP_PATH).replace("\\", "/").strip()
+    remote_dir = remote_dir.replace("'", "").replace('"', "").replace(";", "")
+    path = remote_dir.lstrip("/")
+    if filename:
+        path = "%s/%s" % (path.rstrip("/"), shell_token(filename) or str(filename).strip())
+    return path.replace(" ", "%20")
+
+
+def sftp_probe_program(host, user, password, remote_dir):
+    """Tiny SFTP upload used to fail fast before starting a 50GB dump."""
+    host = shell_token(host)
+    user = shell_token(user)
+    password = shell_token(password)
+    if not (host and user and password):
+        return ""
+    remote = sftp_remote_url(remote_dir, "brodan_sftp_probe.txt")
+    return (
+        "printf brodan-sftp-ok | curl --connect-timeout 8 --max-time 20 "
+        "--ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s "
+        "> /tmp/brodan_sftp_probe.txt 2>&1"
+        % (user, password, host, remote)
+    )
+
+
 def sftp_upload_program(dbname, host, user, password, remote_dir, filename):
     host = shell_token(host)
     user = shell_token(user)
     password = shell_token(password)
-    remote_dir = str(remote_dir or DEFAULT_SFTP_PATH).replace("\\", "/").strip()
-    remote_dir = remote_dir.replace("'", "").replace('"', "").replace(";", "")
     filename = shell_token(filename)
     dbname = shell_token(dbname)
     if not (host and user and password and filename and dbname):
         return ""
-    remote = "%s/%s" % (remote_dir.rstrip("/"), filename)
-    remote = remote.replace(" ", "%20")
+    remote = sftp_remote_url(remote_dir, filename)
     return (
         "nohup sh -c \"pg_dump --no-owner -Fc %s | gzip | "
         "curl --connect-timeout 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s\" "

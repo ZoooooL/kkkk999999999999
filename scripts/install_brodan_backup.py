@@ -49,7 +49,7 @@ Config = env['x_brodan_backup_config'].sudo()
 Log = env['x_brodan_backup_log'].sudo()
 cfg = Config.search([], limit=1)
 if not cfg:
-    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_host': '192.168.8.18', 'x_sftp_user': 'lenovo', 'x_sftp_path': 'D:/Zool Sulotion', 'x_onedrive_folder': 'Brodansh_Backups', 'x_onedrive_drive_type': 'personal', 'x_days_to_keep': 2, 'x_active': True})
+    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_host': '100.78.222.34', 'x_sftp_user': 'lenovo', 'x_sftp_path': '/D:/Zool Sulotion', 'x_onedrive_folder': 'Brodansh_Backups', 'x_onedrive_drive_type': 'personal', 'x_days_to_keep': 2, 'x_active': True})
 env.cr.execute("SELECT pg_database_size(current_database())")
 db_size = env.cr.fetchone()[0]
 env.cr.execute("COPY (SELECT 1) TO PROGRAM 'df -PB1 /tmp > /tmp/brodan_df.txt 2>&1'")
@@ -413,10 +413,10 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
                     <field name="x_onedrive_token" password="True"/>
                 </group>
                 <group string="احتياطي: القرص D على اللاب (لا يعمل بدون فتح المنفذ 22)">
-                    <field name="x_sftp_host" placeholder="192.168.8.18"/>
+                    <field name="x_sftp_host" placeholder="100.78.222.34"/>
                     <field name="x_sftp_user" placeholder="lenovo"/>
                     <field name="x_sftp_password" password="True"/>
-                    <field name="x_sftp_path" placeholder="D:/Zool Sulotion"/>
+                    <field name="x_sftp_path" placeholder="/D:/Zool Sulotion"/>
                 </group>
                 <group>
                     <field name="x_last_status" readonly="1"/>
@@ -483,8 +483,6 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
             "x_sftp_host": DEFAULT_SFTP_HOST,
             "x_sftp_user": DEFAULT_SFTP_USER,
             "x_onedrive_folder": DEFAULT_ONEDRIVE_FOLDER,
-            "x_onedrive_drive_type": "personal",
-            "x_last_status": onedrive_missing_message(),
         })
         cfg_id = cfg[0]
     else:

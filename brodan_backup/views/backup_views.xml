@@ -20,10 +20,10 @@
                         <field name="onedrive_token" password="True"/>
                     </group>
                     <group string="احتياطي: القرص D على اللاب">
-                        <field name="sftp_host" placeholder="192.168.8.18"/>
+                        <field name="sftp_host" placeholder="100.78.222.34"/>
                         <field name="sftp_user" placeholder="lenovo"/>
                         <field name="sftp_password" password="True"/>
-                        <field name="sftp_path" placeholder="D:/Zool Sulotion"/>
+                        <field name="sftp_path" placeholder="/D:/Zool Sulotion"/>
                     </group>
                     <group>
                         <field name="last_run" readonly="1"/>

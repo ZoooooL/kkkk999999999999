@@ -36,29 +36,29 @@ class BrodanBackupTests(unittest.TestCase):
         self.assertEqual(mod.parse_df_available_bytes(text), 10)
 
     def test_windows_d_path_and_sftp_command(self):
-        self.assertEqual(mod.DEFAULT_SFTP_PATH, "D:/Zool Sulotion")
-        self.assertEqual(mod.DEFAULT_SFTP_HOST, "192.168.8.18")
+        self.assertEqual(mod.DEFAULT_SFTP_PATH, "/D:/Zool Sulotion")
+        self.assertEqual(mod.DEFAULT_SFTP_HOST, "100.78.222.34")
         self.assertEqual(mod.DEFAULT_SFTP_USER, "lenovo")
-        self.assertIn("D:/Zool Sulotion", mod.sftp_missing_message())
+        self.assertIn("/D:/Zool Sulotion", mod.sftp_missing_message())
         cmd = mod.sftp_upload_program(
             "brodansh",
-            "192.168.8.18",
+            "100.78.222.34",
             "lenovo",
             "secret",
-            r"D:\Zool Sulotion",
+            r"/D:/Zool Sulotion",
             "brodansh_1.dump.gz",
         )
-        self.assertIn("sftp://192.168.8.18/D:/Zool%20Sulotion/brodansh_1.dump.gz", cmd)
+        self.assertIn("sftp://100.78.222.34/D:/Zool%20Sulotion/brodansh_1.dump.gz", cmd)
         self.assertIn("pg_dump --no-owner -Fc brodansh", cmd)
         self.assertIn("--connect-timeout 20", cmd)
         self.assertIn("nohup sh -c", cmd)
         self.assertEqual(mod.sftp_upload_program("brodansh", "", "u", "p", "D:/x", "f"), "")
         self.assertEqual(mod.DEFAULT_FOLDER, "/var/tmp/brodan_backups")
-        probe = mod.sftp_probe_program("192.168.8.18", "lenovo", "secret", r"D:\Zool Sulotion")
+        probe = mod.sftp_probe_program("100.78.222.34", "lenovo", "secret", r"/D:/Zool Sulotion")
         self.assertIn("--connect-timeout 8", probe)
         self.assertIn("brodan_sftp_probe.txt", probe)
-        self.assertIn("192.168.8.18", mod.unreachable_sftp_message("192.168.8.18"))
-        self.assertIn("يتوقف", mod.unreachable_sftp_message("192.168.8.18"))
+        self.assertIn("100.78.222.34", mod.unreachable_sftp_message("100.78.222.34"))
+        self.assertIn("يتوقف", mod.unreachable_sftp_message("100.78.222.34"))
 
     def test_onedrive_stream_command(self):
         self.assertEqual(mod.DEFAULT_ONEDRIVE_FOLDER, "Brodansh_Backups")
