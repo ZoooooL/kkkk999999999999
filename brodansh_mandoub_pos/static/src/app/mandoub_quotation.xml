@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="brodansh_mandoub_pos.ProductScreen" t-inherit="point_of_sale.ProductScreen" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('product-screen')]" position="inside">
+            <div t-if="showMandoubCustomerBar" class="mandoub-customer-bar">
+                <label class="mandoub-customer-bar-label" for="mandoub_pos_customer">العميل</label>
+                <div class="mandoub-customer-bar-wrap">
+                    <input
+                        type="search"
+                        id="mandoub_pos_customer"
+                        class="form-control mandoub-customer-bar-input"
+                        placeholder="اكتب اسم العميل"
+                        autocomplete="off"
+                        t-att-value="mandoubCustomer.query"
+                        t-on-input="onMandoubCustomerInput"
+                        t-on-focus="onMandoubCustomerFocus"
+                        t-on-keydown="onMandoubCustomerKeydown"
+                    />
+                    <button
+                        type="button"
+                        class="btn btn-primary mandoub-customer-bar-btn"
+                        t-on-click="confirmMandoubCustomer">
+                        حفظ العميل
+                    </button>
+                </div>
+                <div t-if="mandoubCustomer.matches.length" class="mandoub-customer-bar-matches">
+                    <button
+                        type="button"
+                        class="mandoub-customer-bar-match"
+                        t-foreach="mandoubCustomer.matches"
+                        t-as="partner"
+                        t-key="partner.id"
+                        t-on-click="() => this.selectMandoubCustomer(partner)">
+                        <strong t-esc="partner.name"/>
+                        <small t-if="partner.phone" class="text-muted" t-esc="partner.phone"/>
+                    </button>
+                </div>
+                <p t-if="mandoubCustomer.error" class="mandoub-customer-bar-error" t-esc="mandoubCustomer.error"/>
+            </div>
+        </xpath>
+        <xpath expr="//ActionpadWidget" position="attributes">
+            <attribute name="actionName.bind">mandoubPaymentLabel</attribute>
+        </xpath>
+        <xpath expr="//button[hasclass('pay-button')]/span[1]" position="replace">
+            <span class="d-block" t-esc="mandoubPayLabel"/>
+        </xpath>
+    </t>
+    <t t-name="brodansh_mandoub_pos.PaymentScreen" t-inherit="point_of_sale.PaymentScreen" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('payment-summary')]" position="inside">
+            <div t-if="showMandoubCustomerBar" class="mandoub-customer-bar mandoub-payment-customer">
+                <label class="mandoub-customer-bar-label" for="mandoub_payment_customer">العميل</label>
+                <div class="mandoub-customer-bar-wrap">
+                    <input
+                        type="search"
+                        id="mandoub_payment_customer"
+                        class="form-control mandoub-customer-bar-input"
+                        placeholder="اكتب اسم العميل"
+                        autocomplete="off"
+                        t-att-value="mandoubCustomer.query"
+                        t-on-input="onMandoubCustomerInput"
+                        t-on-focus="onMandoubCustomerFocus"
+                        t-on-keydown="onMandoubCustomerKeydown"
+                    />
+                    <button
+                        type="button"
+                        class="btn btn-primary mandoub-customer-bar-btn"
+                        t-on-click="confirmMandoubCustomer">
+                        حفظ العميل
+                    </button>
+                </div>
+                <div t-if="mandoubCustomer.matches.length" class="mandoub-customer-bar-matches">
+                    <button
+                        type="button"
+                        class="mandoub-customer-bar-match"
+                        t-foreach="mandoubCustomer.matches"
+                        t-as="partner"
+                        t-key="partner.id"
+                        t-on-click="() => this.selectMandoubCustomer(partner)">
+                        <strong t-esc="partner.name"/>
+                        <small t-if="partner.phone" class="text-muted" t-esc="partner.phone"/>
+                    </button>
+                </div>
+                <p t-if="mandoubCustomer.error" class="mandoub-customer-bar-error" t-esc="mandoubCustomer.error"/>
+            </div>
+        </xpath>
+    </t>
+    <t t-name="brodansh_mandoub_pos.PaymentScreenValidate" t-inherit="point_of_sale.PaymentScreenValidate" t-inherit-mode="extension">
+        <xpath expr="//button[hasclass('validation-button')]/span" position="replace">
+            <span t-esc="mandoubValidateLabel"/>
+        </xpath>
+    </t>
+    <t t-name="brodansh_mandoub_pos.ProductCard" t-inherit="point_of_sale.ProductCard" t-inherit-mode="extension">
+        <xpath expr="//article[hasclass('product')]" position="inside">
+            <span t-if="mandoubShowQtyOnHand"
+                  t-attf-class="mandoub-qty-on-hand #{mandoubIsOutOfStock ? 'mandoub-qty-zero' : ''}"
+                  t-esc="mandoubQtyOnHandLabel"/>
+        </xpath>
+    </t>
+</templates>

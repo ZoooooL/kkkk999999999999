@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="brodansh_mandoub_pos.InstallScopedApp" t-inherit="web.InstallScopedApp" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('fade')]" position="inside">
+            <div t-if="isMandoubCustomerApp" class="mandoub-scoped-customer">
+                <label class="mandoub-scoped-customer-label" for="mandoub_scoped_customer">العميل</label>
+                <input
+                    type="search"
+                    id="mandoub_scoped_customer"
+                    class="form-control form-control-lg text-center"
+                    placeholder="اكتب اسم العميل"
+                    autocomplete="off"
+                    t-att-value="state.customerName"
+                    t-on-input="onMandoubCustomerInput"
+                />
+                <a
+                    class="btn btn-primary btn-lg rounded-5 shadow py-2 px-4 mt-3"
+                    t-att-href="mandoubCustomerStartUrl || mandoubStartUrl"
+                    t-on-click="onOpenMandoubApp">
+                    بدء الطلب
+                </a>
+            </div>
+        </xpath>
+    </t>
+</templates>

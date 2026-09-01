@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="brodansh_mandoub_pos.LandingPage" t-inherit="pos_self_order.LandingPage" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('o_pos_landing_footer')]" position="before">
+            <div t-if="showMandoubCustomer" class="mandoub-kiosk-customer">
+                <div class="mandoub-kiosk-customer-card">
+                    <label class="mandoub-kiosk-customer-label" for="mandoub_customer_input">العميل</label>
+                    <input
+                        type="search"
+                        id="mandoub_customer_input"
+                        class="form-control form-control-lg mandoub-kiosk-customer-input"
+                        placeholder="اكتب اسم العميل"
+                        autocomplete="off"
+                        t-att-value="mandoubCustomer.query"
+                        t-on-input="onMandoubCustomerInput"
+                        t-on-keydown="(ev) => ev.key === 'Enter' and this.start()"
+                    />
+                    <div t-if="mandoubCustomer.matches.length" class="mandoub-kiosk-customer-matches">
+                        <button
+                            type="button"
+                            class="mandoub-kiosk-customer-match"
+                            t-foreach="mandoubCustomer.matches"
+                            t-as="partner"
+                            t-key="partner.id"
+                            t-on-click="() => this.selectMandoubCustomer(partner)">
+                            <strong t-esc="partner.name"/>
+                            <small t-if="partner.phone or partner.city" class="text-muted" t-esc="partner.phone or partner.city"/>
+                        </button>
+                    </div>
+                    <p t-if="mandoubCustomer.error" class="mandoub-kiosk-customer-error" t-esc="mandoubCustomer.error"/>
+                    <button type="button" class="btn btn-primary btn-lg w-100 mt-3" t-on-click="start">
+                        بدء الطلب
+                    </button>
+                </div>
+            </div>
+        </xpath>
+    </t>
+
+    <t t-name="brodansh_mandoub_pos.ProductListPage" t-inherit="pos_self_order.ProductListPage" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('navbar-container')]" position="before">
+            <button
+                t-if="showMandoubCustomerBanner"
+                type="button"
+                class="mandoub-kiosk-customer-banner"
+                t-on-click="editMandoubCustomer">
+                <span>العميل:</span>
+                <strong t-esc="mandoubCustomerLabel or 'اكتب اسم العميل'"/>
+            </button>
+        </xpath>
+    </t>
+
+    <t t-name="brodansh_mandoub_pos.CartPage" t-inherit="pos_self_order.CartPage" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('order-cart-content')]/div[1]" position="after">
+            <div t-if="showMandoubCustomerBanner" class="mandoub-kiosk-customer-banner">
+                <span>العميل:</span>
+                <strong t-esc="mandoubCustomerLabel or 'اكتب اسم العميل'"/>
+            </div>
+        </xpath>
+    </t>
+</templates>
