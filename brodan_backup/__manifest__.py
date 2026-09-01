@@ -2,7 +2,7 @@
 {
     "name": "BRODAN Backup",
     "summary": "نسخ احتياطي لقاعدة البيانات مع فحص المساحة وجدولة يومية",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.1.0",
     "author": "BRODAN",
     "license": "LGPL-3",
     "category": "Administration",

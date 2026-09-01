@@ -60,6 +60,24 @@ class BrodanBackupTests(unittest.TestCase):
         self.assertIn("192.168.8.18", mod.unreachable_sftp_message("192.168.8.18"))
         self.assertIn("يتوقف", mod.unreachable_sftp_message("192.168.8.18"))
 
+    def test_onedrive_stream_command(self):
+        self.assertEqual(mod.DEFAULT_ONEDRIVE_FOLDER, "Brodansh_Backups")
+        self.assertIn("OneDrive", mod.onedrive_missing_message())
+        self.assertIn("5GB", mod.onedrive_missing_message())
+        install = mod.rclone_install_program()
+        self.assertIn("downloads.rclone.org", install)
+        self.assertIn("/var/tmp/brodan_rclone/rclone", install)
+        cmd = mod.rclone_rcat_program("brodansh", "Brodansh_Backups", "brodansh_1.dump.gz")
+        self.assertIn("pg_dump --no-owner -Fc brodansh", cmd)
+        self.assertIn("rclone", cmd)
+        self.assertIn("rcat", cmd)
+        self.assertIn("onedrive:Brodansh_Backups/brodansh_1.dump.gz", cmd)
+        self.assertIn("nohup sh -c", cmd)
+        self.assertEqual(mod.rclone_rcat_program("", "Brodansh_Backups", "f"), "")
+        probe = mod.rclone_probe_program()
+        self.assertIn("lsd onedrive:", probe)
+        self.assertIn("--contimeout 8s", probe)
+
 
 if __name__ == "__main__":
     unittest.main()

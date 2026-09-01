@@ -16,7 +16,7 @@ import sys
 import xmlrpc.client
 from pathlib import Path
 
-socket.setdefaulttimeout(180)
+socket.setdefaulttimeout(300)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "brodan_backup" / "models"))
@@ -26,6 +26,7 @@ from backup_config import (  # noqa: E402
     CRON_NAME,
     DEFAULT_FOLDER,
     DEFAULT_KEEP_DAYS,
+    DEFAULT_ONEDRIVE_FOLDER,
     DEFAULT_SFTP_HOST,
     DEFAULT_SFTP_PATH,
     DEFAULT_SFTP_USER,
@@ -34,7 +35,10 @@ from backup_config import (  # noqa: E402
     SERVER_ACTION_NAME,
     STUCK_BACKUP_MODULE_NAMES,
     local_dump_allowed,
+    onedrive_missing_message,
     parse_df_available_bytes,
+    rclone_install_program,
+    rclone_rcat_program,
     skip_message,
     sftp_missing_message,
     sftp_upload_program,
@@ -45,7 +49,7 @@ Config = env['x_brodan_backup_config'].sudo()
 Log = env['x_brodan_backup_log'].sudo()
 cfg = Config.search([], limit=1)
 if not cfg:
-    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_host': '192.168.8.18', 'x_sftp_user': 'lenovo', 'x_sftp_path': 'D:/Zool Sulotion', 'x_days_to_keep': 2, 'x_active': True})
+    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_host': '192.168.8.18', 'x_sftp_user': 'lenovo', 'x_sftp_path': 'D:/Zool Sulotion', 'x_onedrive_folder': 'Brodansh_Backups', 'x_onedrive_drive_type': 'personal', 'x_days_to_keep': 2, 'x_active': True})
 env.cr.execute("SELECT pg_database_size(current_database())")
 db_size = env.cr.fetchone()[0]
 env.cr.execute("COPY (SELECT 1) TO PROGRAM 'df -PB1 /tmp > /tmp/brodan_df.txt 2>&1'")
@@ -69,16 +73,69 @@ host = (cfg.x_sftp_host or '').strip()
 user = (cfg.x_sftp_user or '').strip()
 password = (cfg.x_sftp_password or '').strip()
 remote_dir = (cfg.x_sftp_path or 'D:/Zool Sulotion').replace('\\', '/').strip()
+od_token = (cfg.x_onedrive_token or '').strip()
+od_folder = (cfg.x_onedrive_folder or 'Brodansh_Backups').strip()
+od_type = (cfg.x_onedrive_drive_type or 'personal').strip().lower()
 for ch in ["'", '"', ';', '|', '&', '`', '$', '\n', '\r']:
     host = host.replace(ch, '')
     user = user.replace(ch, '')
     password = password.replace(ch, '')
     remote_dir = remote_dir.replace(ch, '')
+    od_folder = od_folder.replace(ch, '')
+    od_type = od_type.replace(ch, '')
+od_folder = od_folder.replace(' ', '').replace('\\', '')
+if not od_folder:
+    od_folder = 'Brodansh_Backups'
+if od_type not in ('personal', 'business'):
+    od_type = 'personal'
 fname = '%s_%s.dump.gz' % (name, time.strftime('%Y%m%d_%H%M%S'))
 msg = ''
 state = 'skip'
 if not cfg.x_active:
     msg = 'النسخ غير نشط.'
+elif od_token:
+    if free < 2147483648:
+        msg = 'المساحة الحرة أقل من 2GB، لا يمكن تشغيل pg_dump للرفع إلى OneDrive.'
+    else:
+        cfg.write({'x_last_status': 'جاري تجهيز الرفع إلى OneDrive...'})
+        cleaned = od_token
+        if '{' in cleaned and '}' in cleaned:
+            cleaned = cleaned[cleaned.find('{'):cleaned.rfind('}')+1]
+        env.cr.execute('CREATE TEMP TABLE IF NOT EXISTS brodan_od_token (t text)')
+        env.cr.execute('DELETE FROM brodan_od_token')
+        env.cr.execute('INSERT INTO brodan_od_token (t) VALUES (%s)', (cleaned,))
+        install = 'if [ ! -x /var/tmp/brodan_rclone/rclone ]; then curl -fsSL -o /var/tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip && mkdir -p /var/tmp/brodan_rclone_extract /var/tmp/brodan_rclone && unzip -o /var/tmp/rclone.zip -d /var/tmp/brodan_rclone_extract && RDIR=$(find /var/tmp/brodan_rclone_extract -maxdepth 1 -type d -name rclone-* | head -n 1) && cp "$RDIR/rclone" /var/tmp/brodan_rclone/rclone && chmod 755 /var/tmp/brodan_rclone/rclone && rm -rf /var/tmp/rclone.zip /var/tmp/brodan_rclone_extract; fi; /var/tmp/brodan_rclone/rclone version > /tmp/brodan_rclone_install.txt 2>&1'
+        write_conf = 'python3 -c "import sys,csv,io,os; raw=sys.stdin.read(); token=next(csv.reader(io.StringIO(raw)))[0].strip(); open(\'/var/tmp/brodan-rclone.conf\',\'w\').write(\'[onedrive]\'+chr(10)+\'type = onedrive\'+chr(10)+\'drive_type = %s\'+chr(10)+\'token = \'+token+chr(10)); os.chmod(\'/var/tmp/brodan-rclone.conf\', 0o600)"' % od_type
+        probe = 'sh -c \'/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf --onedrive-drive-type %s --non-interactive lsd onedrive: --max-depth 1 --retries 1 --low-level-retries 1 --timeout 20s --contimeout 8s > /tmp/brodan_od_probe.txt 2>&1; echo EXIT:$? >> /tmp/brodan_od_probe.txt\'' % od_type
+        try:
+            env.cr.execute('SAVEPOINT brodan_od1')
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + install + '$brodan$')
+            env.cr.execute('COPY brodan_od_token TO PROGRAM $brodan$' + write_conf + '$brodan$')
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + probe + '$brodan$')
+            env.cr.execute('RELEASE SAVEPOINT brodan_od1')
+            pout = ''
+            try:
+                env.cr.execute("SELECT pg_read_file('/tmp/brodan_od_probe.txt')")
+                pout = str(env.cr.fetchone()[0] or '')
+            except Exception:
+                pout = ''
+            if 'EXIT:0' not in pout:
+                state = 'fail'
+                msg = 'فشل ربط OneDrive. تأكد أن الرمز كامل من سكربت الربط وأن المساحة كافية (ليس الحساب المجاني 5GB). تفصيل: ' + pout.strip()[:350]
+            else:
+                dump = 'nohup sh -c "/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf --onedrive-drive-type %s --non-interactive mkdir onedrive:%s; pg_dump --no-owner -Fc %s | gzip | /var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf --onedrive-drive-type %s --non-interactive rcat --retries 3 onedrive:%s/%s" >/tmp/brodan_od_out.txt 2>&1 &' % (od_type, od_folder, name, od_type, od_folder, fname)
+                env.cr.execute('SAVEPOINT brodan_od2')
+                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
+                env.cr.execute('RELEASE SAVEPOINT brodan_od2')
+                state = 'ok'
+                msg = 'بدأ الرفع إلى OneDrive/%s/%s في الخلفية. الملف كبير وقد يستغرق ساعات. راقبه من تطبيق OneDrive على اللاب.' % (od_folder, fname)
+        except Exception as ex:
+            try:
+                env.cr.execute('ROLLBACK TO SAVEPOINT brodan_od1')
+            except Exception:
+                pass
+            state = 'fail'
+            msg = 'فشل تجهيز OneDrive: ' + str(ex)[:300]
 elif host and user and password:
     if free < 2147483648:
         msg = 'المساحة الحرة أقل من 2GB، لا يمكن تشغيل pg_dump للرفع إلى D.'
@@ -100,26 +157,24 @@ elif host and user and password:
                 pout = ''
             if pout.strip():
                 state = 'fail'
-                msg = 'السيرفر لا يصل إلى جهازك %s على المنفذ 22. لذلك يظهر التحميل ثم يتوقف بدون ملف على D. افتح Port Forwarding للمنفذ 22 على الراوتر إلى هذا الجهاز أو استخدم VPN ثم اضغط نسخ الآن. تفصيل: %s' % (host, pout.strip()[:300])
+                msg = 'السيرفر لا يصل إلى جهازك %s. الأفضل OneDrive: شغّل سكربت الربط والصق الرمز ثم نسخ الآن. تفصيل: %s' % (host, pout.strip()[:250])
             else:
                 dump = 'nohup sh -c "pg_dump --no-owner -Fc %s | gzip | curl --connect-timeout 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s" >/tmp/brodan_sftp_out.txt 2>&1 &' % (name, user, password, host, remote_url)
                 env.cr.execute('SAVEPOINT brodan_bk2')
                 env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
                 env.cr.execute('RELEASE SAVEPOINT brodan_bk2')
                 state = 'ok'
-                msg = 'الاتصال نجح وبدأت النسخة في الخلفية إلى %s على %s. الملف كبير وقد يستغرق وقتاً طويلاً.' % (remote, host)
+                msg = 'الاتصال نجح وبدأت النسخة في الخلفية إلى %s على %s.' % (remote, host)
         except Exception as ex:
             try:
                 env.cr.execute('ROLLBACK TO SAVEPOINT brodan_bk')
             except Exception:
                 pass
             state = 'fail'
-            msg = 'السيرفر لا يصل إلى جهازك %s على المنفذ 22. لذلك يظهر التحميل ثم يتوقف. افتح المنفذ 22 على الراوتر. تفصيل: %s' % (host, str(ex)[:300])
-elif host:
-    msg = 'Host وUser جاهزان (192.168.8.18 / lenovo). اكتب كلمة سر ويندوز لمستخدم lenovo. ملاحظة: هذا IP محلي ولن يصل إليه سيرفر أودو إلا بعد فتح المنفذ 22 على الراوتر أو VPN.'
+            msg = 'السيرفر لا يصل إلى اللاب. استخدم OneDrive بدلاً منه. تفصيل: ' + str(ex)[:250]
 else:
-    msg = 'أدخل IP جهاز الويندوز في SFTP Host مع المستخدم وكلمة السر. المسار: D:/Zool Sulotion'
-Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': (host or '') + ' ' + remote_dir})
+    msg = 'الأفضل النسخ إلى OneDrive لأن السيرفر يصل للإنترنت ولا يصل إلى اللاب. شغّل سكربت الربط على ويندوز، الصق الرمز في حقل OneDrive، ثم حفظ ونسخ الآن. الحساب المجاني 5GB لا يكفي.'
+Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': ('onedrive:' + od_folder) if od_token else ((host or '') + ' ' + remote_dir)})
 cfg.write({'x_last_status': msg})
 """
 
@@ -318,6 +373,36 @@ def cleanup_stuck_modules(odoo: Odoo) -> list[dict]:
     return report
 
 
+def ensure_rclone(odoo: Odoo, model_id: int) -> str:
+    """Download rclone onto the Odoo host so OneDrive uploads can stream."""
+    prog = rclone_install_program()
+    code = (
+        "env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + %r + '$brodan$')\n"
+        "out = ''\n"
+        "try:\n"
+        "    env.cr.execute(\"SELECT pg_read_file('/tmp/brodan_rclone_install.txt')\")\n"
+        "    out = str(env.cr.fetchone()[0] or '')\n"
+        "except Exception:\n"
+        "    out = 'no-install-log'\n"
+        "env['ir.config_parameter'].sudo().set_param('brodan.rclone_ver', out[:800])\n"
+    ) % prog
+    name = "BRODAN: install rclone"
+    found = odoo.execute("ir.actions.server", "search", [("name", "=", name)], limit=1)
+    vals = {"name": name, "model_id": model_id, "state": "code", "code": code}
+    if found:
+        odoo.execute("ir.actions.server", "write", found, vals)
+        sid = found[0]
+    else:
+        sid = odoo.execute("ir.actions.server", "create", vals)
+    odoo.execute("ir.actions.server", "run", [sid])
+    rows = odoo.execute("ir.config_parameter", "search_read", [("key", "=", "brodan.rclone_ver")], ["value"], limit=1)
+    odoo.execute("ir.actions.server", "unlink", [sid])
+    ids = odoo.execute("ir.config_parameter", "search", [("key", "=", "brodan.rclone_ver")])
+    if ids:
+        odoo.execute("ir.config_parameter", "unlink", ids)
+    return rows[0]["value"] if rows else ""
+
+
 def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
     config_model_id = ensure_model(odoo, CONFIG_MODEL, "تهيئة النسخ الاحتياطي")
     log_model_id = ensure_model(odoo, LOG_MODEL, "سجل النسخ الاحتياطي")
@@ -328,6 +413,9 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_user", "char", field_description="مستخدم ويندوز")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_password", "char", field_description="كلمة سر ويندوز")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_sftp_path", "char", field_description="مسار القرص D")
+    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_onedrive_folder", "char", field_description="مجلد OneDrive")
+    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_onedrive_token", "text", field_description="رمز OneDrive")
+    ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_onedrive_drive_type", "char", field_description="نوع OneDrive personal أو business")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_active", "boolean", field_description="نشط")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_last_status", "text", field_description="آخر حالة")
     ensure_field(odoo, log_model_id, LOG_MODEL, "x_name", "char", field_description="الاسم")
@@ -350,7 +438,12 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
                     <field name="x_days_to_keep"/>
                     <field name="x_active"/>
                 </group>
-                <group string="النسخ إلى القرص D على جهاز ويندوز (SFTP / IP)">
+                <group string="النسخ إلى OneDrive (مستحسن — السيرفر يصل للإنترنت)">
+                    <field name="x_onedrive_folder" placeholder="Brodansh_Backups"/>
+                    <field name="x_onedrive_drive_type" placeholder="personal"/>
+                    <field name="x_onedrive_token" password="True"/>
+                </group>
+                <group string="احتياطي: القرص D على اللاب (لا يعمل بدون فتح المنفذ 22)">
                     <field name="x_sftp_host" placeholder="192.168.8.18"/>
                     <field name="x_sftp_user" placeholder="lenovo"/>
                     <field name="x_sftp_password" password="True"/>
@@ -358,7 +451,7 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
                 </group>
                 <group>
                     <field name="x_last_status" readonly="1"/>
-                    <div class="text-muted">زر نسخ الآن يختبر الاتصال خلال ثوانٍ. إن توقف التحميل فالمسار من السيرفر إلى جهازك مغلق (المنفذ 22).</div>
+                    <div class="text-muted">شغّل سكربت ربط OneDrive على اللاب، الصق الرمز هنا، احفظ، ثم نسخ الآن. الحساب المجاني 5GB لا يكفي لقاعدة ~50GB.</div>
                 </group>
             </sheet>
         </form>
@@ -420,6 +513,9 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
             "x_sftp_path": DEFAULT_SFTP_PATH,
             "x_sftp_host": DEFAULT_SFTP_HOST,
             "x_sftp_user": DEFAULT_SFTP_USER,
+            "x_onedrive_folder": DEFAULT_ONEDRIVE_FOLDER,
+            "x_onedrive_drive_type": "personal",
+            "x_last_status": onedrive_missing_message(),
         })
         cfg_id = cfg[0]
     else:
@@ -433,6 +529,9 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
                 "x_sftp_path": DEFAULT_SFTP_PATH,
                 "x_sftp_host": DEFAULT_SFTP_HOST,
                 "x_sftp_user": DEFAULT_SFTP_USER,
+                "x_onedrive_folder": DEFAULT_ONEDRIVE_FOLDER,
+                "x_onedrive_drive_type": "personal",
+                "x_last_status": onedrive_missing_message(),
                 "x_active": True,
             },
         )
@@ -456,6 +555,8 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
     else:
         cron_id = odoo.execute("ir.cron", "create", cron_vals)
 
+    rclone_ver = ensure_rclone(odoo, config_model_id)
+
     if run_now:
         odoo.execute("ir.actions.server", "run", [server_id])
     logs = odoo.execute(LOG_MODEL, "search_read", [], ["x_name", "x_state", "x_message", "x_size"], limit=3, order="id desc")
@@ -467,6 +568,7 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
         "server_id": server_id,
         "config": cfg_row,
         "logs": logs,
+        "rclone": rclone_ver,
         "skipped_for_disk": "تم تخطي" in status,
     }
 
@@ -487,6 +589,8 @@ def main(argv: list[str] | None = None) -> int:
         "installed": installed,
         "helpers": {
             "skip_example": skip_message(54 * 1024 ** 3, 6 * 1024 ** 3),
+            "onedrive": onedrive_missing_message(),
+            "rclone_rcat": rclone_rcat_program("brodansh", "Brodansh_Backups", "brodansh.dump.gz"),
             "parse_df": parse_df_available_bytes(
                 "Filesystem 1-blocks Used Available Capacity Mounted on\n/dev/root 100 90 10 90% /\n"
             ),

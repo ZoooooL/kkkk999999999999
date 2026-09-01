@@ -11,6 +11,7 @@ from odoo.service import db as db_service
 from .backup_config import (
     DEFAULT_FOLDER,
     DEFAULT_KEEP_DAYS,
+    DEFAULT_ONEDRIVE_FOLDER,
     DEFAULT_SFTP_HOST,
     DEFAULT_SFTP_PATH,
     DEFAULT_SFTP_USER,
@@ -33,6 +34,9 @@ class BrodanBackupConfig(models.Model):
     sftp_user = fields.Char(default=DEFAULT_SFTP_USER)
     sftp_password = fields.Char()
     sftp_path = fields.Char(default=DEFAULT_SFTP_PATH)
+    onedrive_folder = fields.Char(default=DEFAULT_ONEDRIVE_FOLDER)
+    onedrive_token = fields.Text()
+    onedrive_drive_type = fields.Char(default="personal")
     active = fields.Boolean(default=True)
     last_run = fields.Datetime(readonly=True)
     last_status = fields.Text(readonly=True)

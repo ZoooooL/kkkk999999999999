@@ -17,6 +17,10 @@ DEFAULT_SFTP_PATH = "D:/Zool Sulotion"
 DEFAULT_SFTP_HOST = "192.168.8.18"
 DEFAULT_SFTP_USER = "lenovo"
 DEFAULT_KEEP_DAYS = 2
+DEFAULT_ONEDRIVE_FOLDER = "Brodansh_Backups"
+RCLONE_BIN = "/var/tmp/brodan_rclone/rclone"
+RCLONE_CONF = "/var/tmp/brodan-rclone.conf"
+RCLONE_ZIP = "/var/tmp/rclone.zip"
 # Refuse a local dump unless free bytes exceed database size plus this margin.
 SAFETY_MARGIN_BYTES = 2 * 1024 * 1024 * 1024
 MIN_PGDUMP_FREE_BYTES = 2 * 1024 * 1024 * 1024
@@ -109,6 +113,53 @@ def sftp_upload_program(dbname, host, user, password, remote_dir, filename):
         "curl --connect-timeout 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s\" "
         ">/tmp/brodan_sftp_out.txt 2>&1 &"
         % (dbname, user, password, host, remote)
+    )
+
+
+def onedrive_missing_message():
+    return (
+        "الأفضل النسخ إلى OneDrive لأن سيرفر أودو يصل للإنترنت ولا يصل إلى اللاب. "
+        "شغّل سكربت الربط على جهاز ويندوز، الصق الرمز في حقل OneDrive، ثم حفظ ونسخ الآن. "
+        "الحساب المجاني 5GB لا يكفي؛ تحتاج مساحة كافية (يفضل Microsoft 365) لأن القاعدة نحو 50GB."
+    )
+
+
+def rclone_install_program():
+    return (
+        "if [ ! -x %s ]; then "
+        "curl -fsSL -o %s https://downloads.rclone.org/rclone-current-linux-amd64.zip && "
+        "mkdir -p /var/tmp/brodan_rclone_extract /var/tmp/brodan_rclone && "
+        "unzip -o %s -d /var/tmp/brodan_rclone_extract && "
+        "RDIR=$(find /var/tmp/brodan_rclone_extract -maxdepth 1 -type d -name rclone-* | head -n 1) && "
+        "cp \"$RDIR/rclone\" %s && chmod 755 %s && "
+        "rm -rf %s /var/tmp/brodan_rclone_extract; "
+        "fi; %s version > /tmp/brodan_rclone_install.txt 2>&1"
+        % (RCLONE_BIN, RCLONE_ZIP, RCLONE_ZIP, RCLONE_BIN, RCLONE_BIN, RCLONE_ZIP, RCLONE_BIN)
+    )
+
+
+def rclone_rcat_program(dbname, folder, filename):
+    dbname = shell_token(dbname)
+    folder = shell_token(folder) or DEFAULT_ONEDRIVE_FOLDER
+    filename = shell_token(filename)
+    if not (dbname and filename):
+        return ""
+    remote = "%s/%s" % (folder, filename)
+    return (
+        "nohup sh -c \"%s --config %s mkdir onedrive:%s; "
+        "pg_dump --no-owner -Fc %s | gzip | "
+        "%s --config %s rcat --retries 3 onedrive:%s\" "
+        ">/tmp/brodan_od_out.txt 2>&1 &"
+        % (RCLONE_BIN, RCLONE_CONF, folder, dbname, RCLONE_BIN, RCLONE_CONF, remote)
+    )
+
+
+def rclone_probe_program():
+    return (
+        "%s --config %s lsd onedrive: --max-depth 1 --retries 1 "
+        "--low-level-retries 1 --timeout 20s --contimeout 8s "
+        "> /tmp/brodan_od_probe.txt 2>&1"
+        % (RCLONE_BIN, RCLONE_CONF)
     )
 
 

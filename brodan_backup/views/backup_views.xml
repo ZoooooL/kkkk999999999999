@@ -14,7 +14,12 @@
                         <field name="days_to_keep"/>
                         <field name="active"/>
                     </group>
-                    <group string="النسخ إلى القرص D (SFTP / IP)">
+                    <group string="النسخ إلى OneDrive (مستحسن)">
+                        <field name="onedrive_folder" placeholder="Brodansh_Backups"/>
+                        <field name="onedrive_drive_type" placeholder="personal"/>
+                        <field name="onedrive_token" password="True"/>
+                    </group>
+                    <group string="احتياطي: القرص D على اللاب">
                         <field name="sftp_host" placeholder="192.168.8.18"/>
                         <field name="sftp_user" placeholder="lenovo"/>
                         <field name="sftp_password" password="True"/>
@@ -23,7 +28,7 @@
                     <group>
                         <field name="last_run" readonly="1"/>
                         <field name="last_status" readonly="1"/>
-                        <div class="text-muted">زر نسخ الآن يختبر الاتصال خلال ثوانٍ. إن توقف التحميل فالمسار من السيرفر إلى جهازك مغلق (المنفذ 22).</div>
+                        <div class="text-muted">شغّل سكربت ربط OneDrive على اللاب، الصق الرمز، احفظ، ثم نسخ الآن. الحساب المجاني 5GB لا يكفي.</div>
                     </group>
                 </sheet>
             </form>
