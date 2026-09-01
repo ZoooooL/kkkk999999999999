@@ -97,6 +97,27 @@ def footer_totals(opening_debit, opening_credit, period_debit, period_credit):
     return debit, credit, debit - credit
 
 
+ZERO_EPS = 0.004
+
+
+def is_zero_amount(value):
+    return abs(float(value or 0.0)) <= ZERO_EPS
+
+
+def net_side_amounts(balance):
+    """Show a net balance on debit or credit only; zeros stay empty."""
+    bal = float(balance or 0.0)
+    if bal > ZERO_EPS:
+        return bal, 0.0
+    if bal < -ZERO_EPS:
+        return 0.0, -bal
+    return 0.0, 0.0
+
+
+def keep_partner_statement(balance):
+    return not is_zero_amount(balance)
+
+
 def ids_from_form_m2m(value):
     """Normalize a many2many value from wizard `read()` / form data to a list of ids."""
     if not value:

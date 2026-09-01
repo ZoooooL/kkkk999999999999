@@ -150,8 +150,10 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
         self.assertIn("brodan-partner-page-break", arch)
         self.assertNotIn('t-set="company_id"', arch)
         self.assertIn('t-set="pl_company_id"', arch)
-        self.assertIn("o_index", arch)
-        self.assertIn("page-break-before", arch)
+        self.assertIn("keep_partner", arch)
+        self.assertIn("ob_open_debit", arch)
+        self.assertIn("التاريخ", arch)
+        self.assertNotIn('t-esc="0.0"', arch)
         self.assertIn("x_partner_category_ids", (MODULE / "views" / "partner_ledger_wizard.xml").read_text(encoding="utf-8"))
         self.assertIn("المندوب:", arch)
         self.assertIn("التصنيف:", arch)
@@ -167,6 +169,19 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
         self.assertTrue(partner_has_tags([10, 11], [11]))
         self.assertFalse(partner_has_tags([10], [11]))
         self.assertTrue(partner_has_tags([], []))
+
+    def test_zero_balance_hidden_and_net_opening(self):
+        from opening import is_zero_amount, keep_partner_statement, net_side_amounts
+
+        self.assertTrue(is_zero_amount(0))
+        self.assertTrue(is_zero_amount(0.0))
+        self.assertTrue(is_zero_amount(0.001))
+        self.assertFalse(is_zero_amount(3.30782))
+        self.assertFalse(keep_partner_statement(0))
+        self.assertTrue(keep_partner_statement(3307.82))
+        self.assertEqual(net_side_amounts(3307.82), (3307.82, 0.0))
+        self.assertEqual(net_side_amounts(-150.5), (0.0, 150.5))
+        self.assertEqual(net_side_amounts(0), (0.0, 0.0))
 
 
 if __name__ == "__main__":
