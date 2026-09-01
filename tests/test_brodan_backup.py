@@ -50,8 +50,15 @@ class BrodanBackupTests(unittest.TestCase):
         )
         self.assertIn("sftp://192.168.8.18/D:/Zool%20Sulotion/brodansh_1.dump.gz", cmd)
         self.assertIn("pg_dump --no-owner -Fc brodansh", cmd)
+        self.assertIn("--connect-timeout 20", cmd)
+        self.assertIn("nohup sh -c", cmd)
         self.assertEqual(mod.sftp_upload_program("brodansh", "", "u", "p", "D:/x", "f"), "")
         self.assertEqual(mod.DEFAULT_FOLDER, "/var/tmp/brodan_backups")
+        probe = mod.sftp_probe_program("192.168.8.18", "lenovo", "secret", r"D:\Zool Sulotion")
+        self.assertIn("--connect-timeout 8", probe)
+        self.assertIn("brodan_sftp_probe.txt", probe)
+        self.assertIn("192.168.8.18", mod.unreachable_sftp_message("192.168.8.18"))
+        self.assertIn("يتوقف", mod.unreachable_sftp_message("192.168.8.18"))
 
 
 if __name__ == "__main__":

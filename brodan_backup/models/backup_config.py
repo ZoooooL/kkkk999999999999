@@ -54,6 +54,36 @@ def sftp_missing_message():
     )
 
 
+def unreachable_sftp_message(host, detail=""):
+    host = host or DEFAULT_SFTP_HOST
+    extra = (" تفصيل: " + str(detail).strip()[:300]) if str(detail or "").strip() else ""
+    return (
+        "السيرفر لا يصل إلى جهازك %s على المنفذ 22. لذلك يظهر التحميل ثم يتوقف "
+        "بدون ملف على D. افتح Port Forwarding للمنفذ 22 على الراوتر إلى هذا الجهاز "
+        "أو استخدم VPN ثم اضغط نسخ الآن."
+        % host
+    ) + extra
+
+
+def sftp_probe_program(host, user, password, remote_dir):
+    """Tiny SFTP upload used to fail fast before starting a 50GB dump."""
+    host = shell_token(host)
+    user = shell_token(user)
+    password = shell_token(password)
+    remote_dir = str(remote_dir or DEFAULT_SFTP_PATH).replace("\\", "/").strip()
+    remote_dir = remote_dir.replace("'", "").replace('"', "").replace(";", "")
+    if not (host and user and password):
+        return ""
+    remote = "%s/brodan_sftp_probe.txt" % remote_dir.rstrip("/")
+    remote = remote.replace(" ", "%20")
+    return (
+        "printf brodan-sftp-ok | curl --connect-timeout 8 --max-time 20 "
+        "--ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s "
+        "> /tmp/brodan_sftp_probe.txt 2>&1"
+        % (user, password, host, remote)
+    )
+
+
 def shell_token(value):
     """Strip shell metacharacters before embedding in COPY TO PROGRAM."""
     text = str(value or "")
@@ -75,9 +105,9 @@ def sftp_upload_program(dbname, host, user, password, remote_dir, filename):
     remote = "%s/%s" % (remote_dir.rstrip("/"), filename)
     remote = remote.replace(" ", "%20")
     return (
-        "pg_dump --no-owner -Fc %s | gzip | "
-        "curl --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s "
-        "> /tmp/brodan_sftp_out.txt 2>&1"
+        "nohup sh -c \"pg_dump --no-owner -Fc %s | gzip | "
+        "curl --connect-timeout 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s\" "
+        ">/tmp/brodan_sftp_out.txt 2>&1 &"
         % (dbname, user, password, host, remote)
     )
 

@@ -85,27 +85,36 @@ elif host and user and password:
     else:
         remote = remote_dir.rstrip('/') + '/' + fname
         remote_url = remote.replace(' ', '%20')
-        prog = 'pg_dump --no-owner -Fc %s | gzip | curl --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s > /tmp/brodan_sftp_out.txt 2>&1' % (name, user, password, host, remote_url)
+        probe_url = (remote_dir.rstrip('/') + '/brodan_sftp_probe.txt').replace(' ', '%20')
+        cfg.write({'x_last_status': 'جاري التحقق من الاتصال بـ %s ...' % host})
+        probe = 'printf brodan-sftp-ok | curl --connect-timeout 8 --max-time 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s > /tmp/brodan_sftp_probe.txt 2>&1' % (user, password, host, probe_url)
         try:
             env.cr.execute('SAVEPOINT brodan_bk')
-            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + prog + '$brodan$')
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + probe + '$brodan$')
             env.cr.execute('RELEASE SAVEPOINT brodan_bk')
-            out = ''
+            pout = ''
             try:
-                env.cr.execute("SELECT pg_read_file('/tmp/brodan_sftp_out.txt')")
-                out = str(env.cr.fetchone()[0] or '')
+                env.cr.execute("SELECT pg_read_file('/tmp/brodan_sftp_probe.txt')")
+                pout = str(env.cr.fetchone()[0] or '')
             except Exception:
-                out = ''
-            if out.strip():
+                pout = ''
+            if pout.strip():
                 state = 'fail'
-                msg = 'فشل الرفع إلى D: ' + out[:400]
+                msg = 'السيرفر لا يصل إلى جهازك %s على المنفذ 22. لذلك يظهر التحميل ثم يتوقف بدون ملف على D. افتح Port Forwarding للمنفذ 22 على الراوتر إلى هذا الجهاز أو استخدم VPN ثم اضغط نسخ الآن. تفصيل: %s' % (host, pout.strip()[:300])
             else:
+                dump = 'nohup sh -c "pg_dump --no-owner -Fc %s | gzip | curl --connect-timeout 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s" >/tmp/brodan_sftp_out.txt 2>&1 &' % (name, user, password, host, remote_url)
+                env.cr.execute('SAVEPOINT brodan_bk2')
+                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
+                env.cr.execute('RELEASE SAVEPOINT brodan_bk2')
                 state = 'ok'
-                msg = 'رُفعت النسخة إلى %s على %s' % (remote, host)
+                msg = 'الاتصال نجح وبدأت النسخة في الخلفية إلى %s على %s. الملف كبير وقد يستغرق وقتاً طويلاً.' % (remote, host)
         except Exception as ex:
-            env.cr.execute('ROLLBACK TO SAVEPOINT brodan_bk')
+            try:
+                env.cr.execute('ROLLBACK TO SAVEPOINT brodan_bk')
+            except Exception:
+                pass
             state = 'fail'
-            msg = 'فشل الرفع إلى D: ' + str(ex)[:300]
+            msg = 'السيرفر لا يصل إلى جهازك %s على المنفذ 22. لذلك يظهر التحميل ثم يتوقف. افتح المنفذ 22 على الراوتر. تفصيل: %s' % (host, str(ex)[:300])
 elif host:
     msg = 'Host وUser جاهزان (192.168.8.18 / lenovo). اكتب كلمة سر ويندوز لمستخدم lenovo. ملاحظة: هذا IP محلي ولن يصل إليه سيرفر أودو إلا بعد فتح المنفذ 22 على الراوتر أو VPN.'
 else:
@@ -309,7 +318,7 @@ def cleanup_stuck_modules(odoo: Odoo) -> list[dict]:
     return report
 
 
-def install_backup_app(odoo: Odoo) -> dict:
+def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
     config_model_id = ensure_model(odoo, CONFIG_MODEL, "تهيئة النسخ الاحتياطي")
     log_model_id = ensure_model(odoo, LOG_MODEL, "سجل النسخ الاحتياطي")
     ensure_field(odoo, config_model_id, CONFIG_MODEL, "x_name", "char", field_description="الاسم")
@@ -349,6 +358,7 @@ def install_backup_app(odoo: Odoo) -> dict:
                 </group>
                 <group>
                     <field name="x_last_status" readonly="1"/>
+                    <div class="text-muted">زر نسخ الآن يختبر الاتصال خلال ثوانٍ. إن توقف التحميل فالمسار من السيرفر إلى جهازك مغلق (المنفذ 22).</div>
                 </group>
             </sheet>
         </form>
@@ -446,7 +456,8 @@ def install_backup_app(odoo: Odoo) -> dict:
     else:
         cron_id = odoo.execute("ir.cron", "create", cron_vals)
 
-    odoo.execute("ir.actions.server", "run", [server_id])
+    if run_now:
+        odoo.execute("ir.actions.server", "run", [server_id])
     logs = odoo.execute(LOG_MODEL, "search_read", [], ["x_name", "x_state", "x_message", "x_size"], limit=3, order="id desc")
     cfg_row = odoo.execute(CONFIG_MODEL, "read", [cfg_id], ["x_name", "x_folder", "x_last_status", "x_active"])[0]
     status = (cfg_row.get("x_last_status") or "")
@@ -463,11 +474,12 @@ def install_backup_app(odoo: Odoo) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--run", action="store_true", help="Run a backup/probe after installing")
     args = parser.parse_args(argv)
     load_dotenv(ROOT / ".env")
     odoo = Odoo(require_env("ODOO_URL"), require_env("ODOO_DB"), require_env("ODOO_USERNAME"), require_env("ODOO_API_KEY"))
     cleanup = cleanup_stuck_modules(odoo)
-    installed = install_backup_app(odoo) if args.apply else {"apply": False}
+    installed = install_backup_app(odoo, run_now=args.run) if args.apply else {"apply": False}
     report = {
         "database": odoo.db,
         "apply": args.apply,

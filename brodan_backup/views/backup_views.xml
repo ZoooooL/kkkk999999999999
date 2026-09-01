@@ -23,6 +23,7 @@
                     <group>
                         <field name="last_run" readonly="1"/>
                         <field name="last_status" readonly="1"/>
+                        <div class="text-muted">زر نسخ الآن يختبر الاتصال خلال ثوانٍ. إن توقف التحميل فالمسار من السيرفر إلى جهازك مغلق (المنفذ 22).</div>
                     </group>
                 </sheet>
             </form>
