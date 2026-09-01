@@ -42,9 +42,10 @@ from backup_config import (  # noqa: E402
     skip_message,
     sftp_missing_message,
     sftp_upload_program,
+    stream_write_program,
 )
 
-BACKUP_CODE = r"""
+BACKUP_CODE_TEMPLATE = r"""
 Config = env['x_brodan_backup_config'].sudo()
 Log = env['x_brodan_backup_log'].sudo()
 cfg = Config.search([], limit=1)
@@ -88,7 +89,7 @@ if not od_folder:
     od_folder = 'Brodansh_Backups'
 if od_type not in ('personal', 'business'):
     od_type = 'personal'
-fname = '%s_%s.dump.gz' % (name, time.strftime('%Y%m%d_%H%M%S'))
+fname = '%s_%s.dump' % (name, time.strftime('%Y%m%d_%H%M%S'))
 msg = ''
 state = 'skip'
 if not cfg.x_active:
@@ -108,28 +109,43 @@ elif od_token:
         env.cr.execute('INSERT INTO brodan_od_b64 (t) VALUES (%s)', (b64,))
         install = 'if [ ! -x /var/tmp/brodan_rclone/rclone ]; then curl -fsSL -o /var/tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip && mkdir -p /var/tmp/brodan_rclone_extract /var/tmp/brodan_rclone && unzip -o /var/tmp/rclone.zip -d /var/tmp/brodan_rclone_extract && RDIR=$(find /var/tmp/brodan_rclone_extract -maxdepth 1 -type d -name rclone-* | head -n 1) && cp "$RDIR/rclone" /var/tmp/brodan_rclone/rclone && chmod 755 /var/tmp/brodan_rclone/rclone && rm -rf /var/tmp/rclone.zip /var/tmp/brodan_rclone_extract; fi; cat > /var/tmp/brodan_write_rclone.py << '"'"'BRD'"'"'\nimport sys, base64, os, json, urllib.request\nraw = sys.stdin.read().strip().replace(chr(10), "").replace(chr(13), "")\nif raw.startswith(chr(34)) and raw.endswith(chr(34)):\n    raw = raw[1:-1]\ntoken = base64.b64decode(raw).decode()\ndrive_id = ""\ndrive_type = "personal"\ntry:\n    obj = json.loads(token)\n    access = str(obj.get("access_token") or "")\n    if access:\n        req = urllib.request.Request("https://graph.microsoft.com/v1.0/me/drive?$select=id,driveType", headers={"Authorization": "Bearer " + access})\n        with urllib.request.urlopen(req, timeout=20) as resp:\n            info = json.loads(resp.read().decode())\n            drive_id = str(info.get("id") or "")\n            drive_type = str(info.get("driveType") or "personal")\nexcept Exception:\n    pass\nlines = ["[onedrive]", "type = onedrive", "drive_type = " + drive_type, "token = " + token]\nif drive_id:\n    lines.insert(3, "drive_id = " + drive_id)\nopen("/var/tmp/brodan-rclone.conf", "w").write(chr(10).join(lines) + chr(10))\nos.chmod("/var/tmp/brodan-rclone.conf", 0o600)\nBRD\n /var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf version > /tmp/brodan_rclone_install.txt 2>&1'
         probe = '/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf lsd --onedrive-drive-type personal onedrive: --max-depth 1 --retries 1 --low-level-retries 1 --timeout 20s --contimeout 8s > /tmp/brodan_od_probe.txt 2>&1; echo EXIT:$? >> /tmp/brodan_od_probe.txt'
+        lock_check = "if [ -f /tmp/brodan_backup.lock ] && kill -0 $(cat /tmp/brodan_backup.lock) 2>/dev/null; then echo RUNNING; elif pgrep -x pg_dump >/dev/null 2>&1; then echo RUNNING; else echo NONE; fi > /tmp/brodan_lock_check.txt"
         try:
             env.cr.execute('SAVEPOINT brodan_od1')
-            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + install + '$brodan$')
-            env.cr.execute('COPY brodan_od_b64 TO PROGRAM $brodan$python3 /var/tmp/brodan_write_rclone.py$brodan$')
-            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + probe + '$brodan$')
-            env.cr.execute('RELEASE SAVEPOINT brodan_od1')
-            pout = ''
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + lock_check + '$brodan$')
+            running = ''
             try:
-                env.cr.execute("SELECT pg_read_file('/tmp/brodan_od_probe.txt')")
-                pout = str(env.cr.fetchone()[0] or '')
+                env.cr.execute("SELECT pg_read_file('/tmp/brodan_lock_check.txt')")
+                running = str(env.cr.fetchone()[0] or '')
             except Exception:
-                pout = ''
-            if 'EXIT:0' not in pout:
-                state = 'fail'
-                msg = 'فشل ربط OneDrive. تأكد أن الرمز كامل من سكربت الربط وأن المساحة كافية (ليس الحساب المجاني 5GB). تفصيل: ' + pout.strip()[:350]
+                running = ''
+            if 'RUNNING' in running:
+                env.cr.execute('RELEASE SAVEPOINT brodan_od1')
+                state = 'skip'
+                msg = 'نسخة أخرى ما زالت تعمل. انتظر حتى تنتهي ثم اضغط نسخ الآن مرة واحدة فقط.'
             else:
-                dump = 'nohup sh -c "/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf mkdir --onedrive-drive-type personal onedrive:%s; pg_dump --no-owner -Fc %s | gzip | /var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone.conf rcat --onedrive-drive-type personal --retries 3 onedrive:%s/%s" >/tmp/brodan_od_out.txt 2>&1 &' % (od_folder, name, od_folder, fname)
-                env.cr.execute('SAVEPOINT brodan_od2')
-                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
-                env.cr.execute('RELEASE SAVEPOINT brodan_od2')
-                state = 'ok'
-                msg = 'بدأ الرفع إلى OneDrive/%s/%s في الخلفية. الملف كبير وقد يستغرق ساعات. راقبه من تطبيق OneDrive على اللاب.' % (od_folder, fname)
+                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + install + '$brodan$')
+                env.cr.execute('COPY brodan_od_b64 TO PROGRAM $brodan$python3 /var/tmp/brodan_write_rclone.py$brodan$')
+                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + probe + '$brodan$')
+                env.cr.execute('RELEASE SAVEPOINT brodan_od1')
+                pout = ''
+                try:
+                    env.cr.execute("SELECT pg_read_file('/tmp/brodan_od_probe.txt')")
+                    pout = str(env.cr.fetchone()[0] or '')
+                except Exception:
+                    pout = ''
+                if 'EXIT:0' not in pout:
+                    state = 'fail'
+                    msg = 'فشل ربط OneDrive. تأكد أن الرمز كامل من سكربت الربط وأن المساحة كافية (ليس الحساب المجاني 5GB). تفصيل: ' + pout.strip()[:350]
+                else:
+                    write_py = STREAM_WRITE_EXPR
+                    dump = 'rm -f /tmp/rclone-spool*; : > /tmp/brodan_od_out.txt; nohup python3 /var/tmp/brodan_od_stream.py %s %s %s >>/tmp/brodan_od_out.txt 2>&1 &' % (name, od_folder, fname)
+                    env.cr.execute('SAVEPOINT brodan_od2')
+                    env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + write_py + '$brodan$')
+                    env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
+                    env.cr.execute('RELEASE SAVEPOINT brodan_od2')
+                    state = 'ok'
+                    msg = 'بدأ النسخ إلى OneDrive/%s/%s بدون ملف مؤقت (قياس ثم رفع). قد يستغرق ساعات. لا تضغط نسخ الآن مرة أخرى حتى ينتهي.' % (od_folder, fname)
         except Exception as ex:
             try:
                 env.cr.execute('ROLLBACK TO SAVEPOINT brodan_od1')
@@ -147,6 +163,7 @@ else:
 Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': ('onedrive:' + od_folder) if od_token else ((host or '') + ' ' + remote_dir)})
 cfg.write({'x_last_status': msg})
 """
+BACKUP_CODE = BACKUP_CODE_TEMPLATE.replace("STREAM_WRITE_EXPR", repr(stream_write_program()))
 
 
 def load_dotenv(path: Path) -> None:

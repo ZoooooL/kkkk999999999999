@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Helpers shared by the Python addon and the XML-RPC installer."""
 
+import json
+
 STUCK_BACKUP_MODULE_NAMES = (
     "brodan_backup",
     "brodan_backup_runtime_20260831_104812",
@@ -174,19 +176,152 @@ def rclone_install_program():
     )
 
 
+ONEDRIVE_STREAM_SCRIPT = r'''#!/usr/bin/env python3
+import glob, os, signal, subprocess, sys, time
+DB = sys.argv[1]
+FOLDER = sys.argv[2]
+FNAME = sys.argv[3]
+RCLONE = "/var/tmp/brodan_rclone/rclone"
+CONF = "/var/tmp/brodan-rclone.conf"
+LOCK = "/tmp/brodan_backup.lock"
+LOG = "/tmp/brodan_od_out.txt"
+STATUS = "/tmp/brodan_od_status.txt"
+holder = None
+def say(msg):
+    line = time.strftime("%Y-%m-%d %H:%M:%S") + " " + msg
+    with open(LOG, "a") as fh:
+        fh.write(line + "\n")
+    with open(STATUS, "w") as fh:
+        fh.write(msg[:500])
+def find_bin(name):
+    extra = ["/usr/bin", "/usr/lib/postgresql/16/bin", "/usr/lib/postgresql/15/bin", "/usr/lib/postgresql/14/bin"]
+    for d in os.environ.get("PATH", "").split(":") + extra:
+        path = os.path.join(d, name) if d else name
+        if path and os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return name
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+def clear_lock():
+    try:
+        os.remove(LOCK)
+    except OSError:
+        pass
+def cleanup(*_a):
+    global holder
+    if holder is not None and holder.poll() is None:
+        try:
+            holder.terminate()
+        except OSError:
+            pass
+    clear_lock()
+if os.path.exists(LOCK):
+    try:
+        old = int(open(LOCK).read().strip() or "0")
+    except Exception:
+        old = 0
+    if old and old != os.getpid() and alive(old):
+        say("SKIP already running pid %s" % old)
+        sys.exit(0)
+open(LOCK, "w").write(str(os.getpid()))
+signal.signal(signal.SIGTERM, cleanup)
+signal.signal(signal.SIGINT, cleanup)
+for path in glob.glob("/tmp/rclone-spool*"):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+psql = find_bin("psql")
+pg_dump = find_bin("pg_dump")
+holder = subprocess.Popen(
+    [psql, "-d", DB, "-v", "ON_ERROR_STOP=1", "-q", "-t", "-A"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    bufsize=1,
+)
+holder.stdin.write("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n")
+holder.stdin.write("SELECT pg_export_snapshot();\n")
+holder.stdin.flush()
+snap = ""
+deadline = time.time() + 20
+while time.time() < deadline and not snap:
+    line = holder.stdout.readline()
+    if not line:
+        break
+    snap = line.strip()
+if not snap:
+    err = holder.stderr.read() if holder.stderr else ""
+    say("FAIL snapshot: " + str(err)[:300])
+    cleanup()
+    sys.exit(1)
+holder.stdin.write("SELECT pg_sleep(172800);\n")
+holder.stdin.flush()
+say("PASS1 measure snapshot " + snap)
+dump1 = subprocess.Popen([pg_dump, "--no-owner", "-Fc", "--snapshot=" + snap, DB], stdout=subprocess.PIPE)
+wc = subprocess.Popen(["wc", "-c"], stdin=dump1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+dump1.stdout.close()
+out, err = wc.communicate()
+drc1 = dump1.wait()
+if drc1 != 0 or wc.returncode != 0:
+    say("FAIL measure dump rc=%s wc=%s" % (drc1, wc.returncode))
+    cleanup()
+    sys.exit(1)
+size = int((out or b"0").decode().strip() or "0")
+if size < 1000:
+    say("FAIL dump size too small: %s" % size)
+    cleanup()
+    sys.exit(1)
+say("PASS2 upload size=%s to onedrive:%s/%s" % (size, FOLDER, FNAME))
+logf = open(LOG, "a")
+subprocess.call([RCLONE, "--config", CONF, "mkdir", "--onedrive-drive-type", "personal", "onedrive:" + FOLDER], stdout=logf, stderr=subprocess.STDOUT)
+dump2 = subprocess.Popen([pg_dump, "--no-owner", "-Fc", "--snapshot=" + snap, DB], stdout=subprocess.PIPE)
+rcat = subprocess.Popen(
+    [RCLONE, "--config", CONF, "rcat", "--size", str(size), "--onedrive-drive-type", "personal", "--onedrive-chunk-size", "10M", "--retries", "3", "--stats", "60s", "--stats-one-line", "--stats-log-level", "NOTICE", "onedrive:%s/%s" % (FOLDER, FNAME)],
+    stdin=dump2.stdout,
+    stdout=logf,
+    stderr=subprocess.STDOUT,
+)
+dump2.stdout.close()
+rc = rcat.wait()
+drc = dump2.wait()
+if rc == 0 and drc == 0:
+    say("OK uploaded onedrive:%s/%s size=%s" % (FOLDER, FNAME, size))
+    cleanup()
+    sys.exit(0)
+say("FAIL rcat rc=%s dump rc=%s" % (rc, drc))
+cleanup()
+sys.exit(1)
+'''
+
+
+def stream_write_program():
+    """Shell that writes the two-pass OneDrive uploader onto the Odoo host."""
+    import base64
+
+    b64 = base64.b64encode(ONEDRIVE_STREAM_SCRIPT.encode("utf-8")).decode("ascii")
+    inner = (
+        "import base64,os; open('/var/tmp/brodan_od_stream.py','wb').write("
+        "base64.b64decode('%s')); os.chmod('/var/tmp/brodan_od_stream.py', 0o755)"
+    ) % b64
+    return "python3 -c %s" % json.dumps(inner)
+
+
 def rclone_rcat_program(dbname, folder, filename):
     dbname = shell_token(dbname)
     folder = shell_token(folder) or DEFAULT_ONEDRIVE_FOLDER
     filename = shell_token(filename)
     if not (dbname and filename):
         return ""
-    remote = "%s/%s" % (folder, filename)
     return (
-        "nohup sh -c \"%s --config %s mkdir onedrive:%s; "
-        "pg_dump --no-owner -Fc %s | gzip | "
-        "%s --config %s rcat --retries 3 onedrive:%s\" "
+        "rm -f /tmp/rclone-spool*; nohup python3 /var/tmp/brodan_od_stream.py %s %s %s "
         ">/tmp/brodan_od_out.txt 2>&1 &"
-        % (RCLONE_BIN, RCLONE_CONF, folder, dbname, RCLONE_BIN, RCLONE_CONF, remote)
+        % (dbname, folder, filename)
     )
 
 
