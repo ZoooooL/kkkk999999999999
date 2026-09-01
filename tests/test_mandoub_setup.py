@@ -273,6 +273,9 @@ class MandoubFrontendAssetTests(unittest.TestCase):
         self.assertIn("mandoub-out-of-stock", source)
         self.assertIn("wholesaleLineQty", source)
         self.assertIn("showMandoubCustomerBar", source)
+        self.assertIn("openMandoubSavePrint", source)
+        self.assertIn('showScreen(name, props)', source)
+        self.assertIn('name === "PaymentScreen"', source)
         self.assertIn("اكتب اسم العميل أولاً ثم ابدأ الطلب.", source)
 
     def test_kitchen_js_opens_sale_order_and_hides_products(self):

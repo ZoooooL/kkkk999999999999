@@ -76,6 +76,8 @@ class MandoubCustomerUiTests(unittest.TestCase):
         self.assertIn("اكتب اسم العميل", xml)
         self.assertIn("mandoub-customer-bar", xml)
         self.assertIn('id="mandoub_pos_customer"', xml)
+        self.assertIn('id="mandoub_payment_customer"', xml)
+        self.assertIn("mandoubValidateLabel", xml)
 
     def test_kiosk_landing_has_customer_input(self):
         xml = (

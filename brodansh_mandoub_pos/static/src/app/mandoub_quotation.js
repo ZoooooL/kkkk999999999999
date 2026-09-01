@@ -349,7 +349,9 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
 
     function relabelMandoubPayButtons(root) {
         const scope = root && typeof root.querySelectorAll === "function" ? root : document;
-        scope.querySelectorAll(".pay-order-button, .pay-button").forEach((button) => {
+        scope.querySelectorAll(
+            ".pay-order-button, .pay-button, .payment-screen .validation-button, .payment-screen button.next"
+        ).forEach((button) => {
             const titled =
                 button.querySelector("span.d-block, span.pay-name, .mandoub-pay-label") || null;
             if (titled) {
@@ -397,7 +399,7 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 }
                 const payBtn = event.target.closest?.(".pay-order-button, .pay-button");
                 const validateBtn = event.target.closest?.(
-                    ".payment-screen button.next, .payment-screen .button.next"
+                    ".payment-screen button.next, .payment-screen .button.next, .payment-screen .validation-button"
                 );
                 if (!payBtn && !validateBtn) {
                     return;
@@ -485,9 +487,29 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
         },
         async pay() {
             if (isMandoubQuotationPos(this)) {
-                return this.createMandoubQuotation();
+                return this.openMandoubSavePrint();
             }
             return super.pay(...arguments);
+        },
+        showScreen(name, props) {
+            if (name === "PaymentScreen" && isMandoubQuotationPos(this)) {
+                if (currentOrderPartner(this)) {
+                    return this.createMandoubQuotation();
+                }
+            }
+            return super.showScreen(name, props);
+        },
+        async openMandoubSavePrint() {
+            if (!isMandoubQuotationPos(this)) {
+                return super.pay?.(...arguments);
+            }
+            if (currentOrderPartner(this)) {
+                return this.createMandoubQuotation();
+            }
+            this.mobile_pane = "right";
+            return super.showScreen("PaymentScreen", {
+                orderUuid: this.selectedOrderUuid,
+            });
         },
         mandoubQuotationFormUrl(orderId) {
             const companyId = recordId(this.config?.company_id);
@@ -690,6 +712,12 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 this.removeOrder(order, false);
                 this.add_new_order();
                 this.showScreen?.("ProductScreen");
+                this.env.services.dialog.add(AlertDialog, {
+                    title: _t("حفظ و طباعة"),
+                    body:
+                        result.message ||
+                        _t("تم حفظ عرض السعر %s وطباعته.", result.name || ""),
+                });
             } catch (error) {
                 this.env.services.dialog.add(AlertDialog, {
                     title: _t("حفظ و طباعة"),
@@ -739,16 +767,130 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
     patch(PaymentScreen.prototype, {
         setup() {
             super.setup(...arguments);
+            this.mandoubCustomer = useState({
+                query: partnerDisplay(currentOrderPartner(this.pos)),
+                matches: [],
+                error: "",
+            });
             onMounted(() => {
-                if (isMandoubQuotationPos(this.pos)) {
-                    this.pos.createMandoubQuotation().then(() => {
-                        this.pos.showScreen("ProductScreen");
-                    });
+                if (!isMandoubQuotationPos(this.pos)) {
+                    return;
+                }
+                this.el?.classList.add("mandoub-save-print");
+                relabelMandoubPayButtons(this.el || document);
+                if (!this.mandoubCustomer.query) {
+                    this.mandoubCustomer.query = partnerDisplay(currentOrderPartner(this.pos));
                 }
             });
         },
+        get showMandoubCustomerBar() {
+            return isMandoubQuotationPos(this.pos);
+        },
+        get mandoubValidateLabel() {
+            return isMandoubQuotationPos(this.pos) ? _t(SAVE_PRINT_LABEL) : _t("Validate");
+        },
+        onMandoubCustomerInput(ev) {
+            this.mandoubCustomer.query = ev.target.value;
+            this.mandoubCustomer.error = "";
+            this.searchMandoubCustomer(ev.target.value);
+        },
+        onMandoubCustomerFocus() {
+            if ((this.mandoubCustomer.query || "").trim()) {
+                this.searchMandoubCustomer(this.mandoubCustomer.query);
+            }
+        },
+        onMandoubCustomerKeydown(ev) {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                this.confirmMandoubCustomer();
+            }
+        },
+        async searchMandoubCustomer(query) {
+            const text = (query || "").trim();
+            if (!text) {
+                this.mandoubCustomer.matches = [];
+                return;
+            }
+            let matches = localPartnerMatches(this.pos, text);
+            if (matches.length < 3 && this.pos.data?.searchRead) {
+                try {
+                    const remote = await this.pos.data.searchRead("res.partner", [
+                        "|",
+                        "|",
+                        ["name", "ilike", text],
+                        ["phone", "ilike", text],
+                        ["mobile", "ilike", text],
+                    ]);
+                    if (Array.isArray(remote) && remote.length) {
+                        matches = remote;
+                    }
+                } catch (_error) {
+                    // Keep local matches when the live search is unavailable.
+                }
+            }
+            this.mandoubCustomer.matches = matches.slice(0, 12);
+        },
+        selectMandoubCustomer(partner) {
+            assignOrderPartner(this.pos, partner);
+            this.mandoubCustomer.query = partnerDisplay(partner);
+            this.mandoubCustomer.matches = [];
+            this.mandoubCustomer.error = "";
+        },
+        async confirmMandoubCustomer() {
+            const text = (this.mandoubCustomer.query || "").trim();
+            if (!text) {
+                this.mandoubCustomer.error = _t("اكتب اسم العميل أولاً ثم اضغط حفظ و طباعة.");
+                return false;
+            }
+            const exact = (this.mandoubCustomer.matches || []).find(
+                (partner) => partnerDisplay(partner).replace("ـ", "").trim() === text
+            );
+            if (exact) {
+                this.selectMandoubCustomer(exact);
+                return true;
+            }
+            const localExact = localPartnerMatches(this.pos, text).find(
+                (partner) => partnerDisplay(partner).replace("ـ", "").trim() === text
+            );
+            if (localExact) {
+                this.selectMandoubCustomer(localExact);
+                return true;
+            }
+            try {
+                let partner = null;
+                if (this.pos.data?.create) {
+                    const created = await this.pos.data.create("res.partner", [
+                        { name: text, customer_rank: 1 },
+                    ]);
+                    partner = Array.isArray(created) ? created[0] : created;
+                } else if (this.pos.data?.call) {
+                    const partnerId = await this.pos.data.call("res.partner", "create", [
+                        { name: text, customer_rank: 1 },
+                    ]);
+                    partner = this.pos.models["res.partner"].get(partnerId) || {
+                        id: partnerId,
+                        name: text,
+                    };
+                }
+                if (partner) {
+                    this.selectMandoubCustomer(partner);
+                    return true;
+                }
+            } catch (_error) {
+                this.mandoubCustomer.error = _t("تعذر حفظ العميل. أعد المحاولة.");
+                return false;
+            }
+            this.mandoubCustomer.error = _t("تعذر حفظ العميل. أعد المحاولة.");
+            return false;
+        },
         async validateOrder(isForceValidate) {
             if (isMandoubQuotationPos(this.pos)) {
+                if (!currentOrderPartner(this.pos)) {
+                    const saved = await this.confirmMandoubCustomer();
+                    if (!saved) {
+                        return;
+                    }
+                }
                 await this.pos.createMandoubQuotation();
                 this.pos.showScreen("ProductScreen");
                 return;

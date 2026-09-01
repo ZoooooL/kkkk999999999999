@@ -118,3 +118,20 @@ article.product.mandoub-out-of-stock .product-name {
     color: #9b111e;
     font-weight: 700;
 }
+
+.payment-screen.mandoub-save-print .js_invoice,
+.payment-screen.mandoub-save-print .payment-methods,
+.payment-screen.mandoub-save-print .payment-method-list,
+.payment-screen.mandoub-save-print .paymentmethod,
+.payment-screen.mandoub-save-print .numpad,
+.payment-screen.mandoub-save-print .paymentlines {
+    display: none !important;
+}
+
+.mandoub-payment-customer {
+    width: min(36rem, 92%);
+    margin: 1rem auto;
+    background: #fff;
+    border: 1px solid #e0d7e8;
+    border-radius: 0.85rem;
+}
