@@ -148,9 +148,11 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
     def test_qweb_page_break_and_tag_filter(self):
         arch = (MODULE / "report" / "report_partner_ledger.xml").read_text(encoding="utf-8")
         self.assertIn("brodan-partner-page-break", arch)
-        self.assertIn("not o_last", arch)
-        self.assertIn("report_partners", arch)
-        self.assertIn("x_partner_category_ids", arch)
+        self.assertNotIn('t-set="company_id"', arch)
+        self.assertIn('t-set="pl_company_id"', arch)
+        self.assertIn("o_index", arch)
+        self.assertIn("page-break-before", arch)
+        self.assertIn("x_partner_category_ids", (MODULE / "views" / "partner_ledger_wizard.xml").read_text(encoding="utf-8"))
         self.assertIn("المندوب:", arch)
         self.assertIn("التصنيف:", arch)
 

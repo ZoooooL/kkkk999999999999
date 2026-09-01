@@ -83,8 +83,9 @@
                     page-break-inside: avoid;
                 }
                 .brodan-partner-page-break {
-                    page-break-after: always !important;
-                    break-after: page !important;
+                    page-break-before: always !important;
+                    break-before: page !important;
+                    page-break-after: auto !important;
                     height: 0 !important;
                     margin: 0 !important;
                     padding: 0 !important;
@@ -100,18 +101,6 @@
         partner record's env, and read the wizard checkbox by form id.
     -->
     <template id="report_partnerledger_brodan_table" inherit_id="accounting_pdf_reports.report_partnerledger">
-        <xpath expr="//t[@t-foreach='docs']" position="before">
-            <t t-set="pl_form" t-value="data.get('form') or {}"/>
-            <t t-set="pl_wiz_id" t-value="pl_form.get('id')"/>
-            <t t-set="pl_wiz" t-value="res_company.env['account.report.partner.ledger'].browse(pl_wiz_id) if pl_wiz_id else res_company.env['account.report.partner.ledger']"/>
-            <t t-set="tag_ids" t-value="list(pl_form.get('x_partner_category_ids') or [])"/>
-            <t t-set="tag_ids" t-value="list(pl_wiz.x_partner_category_ids.ids) if (not tag_ids and pl_wiz_id and pl_wiz.exists()) else tag_ids"/>
-            <t t-set="report_partners" t-value="[p for p in (docs or []) if (not tag_ids or [tid for tid in tag_ids if tid in p.category_id.ids])]"/>
-        </xpath>
-        <xpath expr="//t[@t-foreach='docs']" position="attributes">
-            <attribute name="t-foreach">report_partners</attribute>
-        </xpath>
-
         <xpath expr="//p[contains(@class, 'text-center')][.//span[@t-esc='o.name']]" position="after">
             <p class="text-center brodan-ledger-meta">
                 <t t-if="o.user_id">
@@ -127,35 +116,35 @@
         </xpath>
 
         <xpath expr="//div[contains(@class, 'page')]" position="inside">
-            <t t-if="not report_partners">
+            <t t-if="not docs">
                 <div class="brodan-no-data">
                     لا توجد بيانات للشركاء المحددين في هذه الفترة. تحقق من التواريخ والتصنيف والشريك ودفاتر اليومية.
                 </div>
             </t>
         </xpath>
 
-        <xpath expr="//table[contains(@class, 'double-border-table')]" position="after">
-            <div t-if="not o_last" class="brodan-partner-page-break"/>
+        <xpath expr="//t[@t-call='web.html_container']" position="before">
+            <div t-if="o_index" class="brodan-partner-page-break"/>
         </xpath>
 
         <xpath expr="//table[contains(@class, 'double-border-table')]/tbody" position="replace">
             <tbody>
-                <t t-set="form" t-value="data.get('form') or {}"/>
-                <t t-set="date_from" t-value="form.get('date_from')"/>
-                <t t-set="date_to" t-value="form.get('date_to')"/>
-                <t t-set="wiz_id" t-value="form.get('id')"/>
+                <t t-set="pl_form" t-value="data.get('form') or {}"/>
+                <t t-set="date_from" t-value="pl_form.get('date_from')"/>
+                <t t-set="date_to" t-value="pl_form.get('date_to')"/>
+                <t t-set="wiz_id" t-value="pl_form.get('id')"/>
                 <t t-set="wiz" t-value="o.env['account.report.partner.ledger'].browse(wiz_id) if wiz_id else o.env['account.report.partner.ledger']"/>
-                <t t-set="form_flag" t-value="form.get('x_show_opening_balance')"/>
+                <t t-set="form_flag" t-value="pl_form.get('x_show_opening_balance')"/>
                 <t t-set="wiz_flag" t-value="wiz.x_show_opening_balance if wiz_id and wiz.exists() else None"/>
                 <t t-set="show_opening" t-value="bool(date_from) and (bool(form_flag) if form_flag is not None else bool(wiz_flag))"/>
-                <t t-set="account_types" t-value="['liability_payable'] if form.get('result_selection') == 'supplier' else (['asset_receivable'] if form.get('result_selection') == 'customer' else ['asset_receivable', 'liability_payable'])"/>
-                <t t-set="move_states" t-value="['posted'] if form.get('target_move') == 'posted' else ['draft', 'posted']"/>
-                <t t-set="company_id" t-value="(form.get('used_context') or {}).get('company_id') or (form.get('company_id')[0] if form.get('company_id') else o.env.company.id)"/>
-                <t t-set="journal_ids" t-value="form.get('journal_ids') or (form.get('used_context') or {}).get('journal_ids') or []"/>
-                <t t-set="ob_domain" t-value="[('partner_id', '=', o.id), ('parent_state', 'in', move_states), ('company_id', '=', company_id), ('account_id.account_type', 'in', account_types), ('display_type', 'not in', ('line_section', 'line_note'))]"/>
+                <t t-set="account_types" t-value="['liability_payable'] if pl_form.get('result_selection') == 'supplier' else (['asset_receivable'] if pl_form.get('result_selection') == 'customer' else ['asset_receivable', 'liability_payable'])"/>
+                <t t-set="move_states" t-value="['posted'] if pl_form.get('target_move') == 'posted' else ['draft', 'posted']"/>
+                <t t-set="pl_company_id" t-value="(pl_form.get('used_context') or {}).get('company_id') or (pl_form.get('company_id')[0] if pl_form.get('company_id') else o.env.company.id)"/>
+                <t t-set="pl_journal_ids" t-value="pl_form.get('journal_ids') or (pl_form.get('used_context') or {}).get('journal_ids') or []"/>
+                <t t-set="ob_domain" t-value="[('partner_id', '=', o.id), ('parent_state', 'in', move_states), ('company_id', '=', pl_company_id), ('account_id.account_type', 'in', account_types), ('display_type', 'not in', ('line_section', 'line_note'))]"/>
                 <t t-set="ob_domain" t-value="ob_domain + [('date', '&lt;', date_from)] if (show_opening and date_from) else ob_domain"/>
-                <t t-set="ob_domain" t-value="ob_domain + [('journal_id', 'in', list(journal_ids))] if (show_opening and journal_ids) else ob_domain"/>
-                <t t-set="ob_domain" t-value="ob_domain + [('full_reconcile_id', '=', False)] if (show_opening and not form.get('reconciled')) else ob_domain"/>
+                <t t-set="ob_domain" t-value="ob_domain + [('journal_id', 'in', list(pl_journal_ids))] if (show_opening and pl_journal_ids) else ob_domain"/>
+                <t t-set="ob_domain" t-value="ob_domain + [('full_reconcile_id', '=', False)] if (show_opening and not pl_form.get('reconciled')) else ob_domain"/>
                 <t t-set="ob_group" t-value="o.env['account.move.line'].read_group(ob_domain, ['debit', 'credit'], []) if show_opening else []"/>
                 <t t-set="ob_debit" t-value="float((ob_group[0].get('debit') if ob_group else 0.0) or 0.0)"/>
                 <t t-set="ob_credit" t-value="float((ob_group[0].get('credit') if ob_group else 0.0) or 0.0)"/>

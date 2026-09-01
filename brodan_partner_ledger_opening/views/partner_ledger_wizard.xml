@@ -33,12 +33,14 @@
         <field name="model">account.report.partner.ledger</field>
         <field name="inherit_id" ref="accounting_pdf_reports.account_report_partner_ledger_view"/>
         <field name="arch" type="xml">
-            <field name="date_from" position="before">
-                <field name="x_show_opening_balance"/>
-            </field>
-            <field name="partner_ids" position="before">
-                <field name="x_partner_category_ids" widget="many2many_tags" options="{'no_create': True, 'no_open': True}"/>
-            </field>
+            <data>
+                <field name="date_from" position="before">
+                    <field name="x_show_opening_balance"/>
+                </field>
+                <field name="partner_ids" position="before">
+                    <field name="x_partner_category_ids" widget="many2many_tags" options="{'no_create': True, 'no_open': True}"/>
+                </field>
+            </data>
         </field>
     </record>
 </odoo>
