@@ -136,42 +136,11 @@ elif od_token:
                 pass
             state = 'fail'
             msg = 'فشل تجهيز OneDrive: ' + str(ex)[:300]
+            if od_token:
+                msg = msg.replace(od_token[:20], '***') if len(od_token) > 20 else msg
 elif host and user and password:
-    if free < 2147483648:
-        msg = 'المساحة الحرة أقل من 2GB، لا يمكن تشغيل pg_dump للرفع إلى D.'
-    else:
-        remote = remote_dir.rstrip('/') + '/' + fname
-        remote_url = remote.replace(' ', '%20')
-        probe_url = (remote_dir.rstrip('/') + '/brodan_sftp_probe.txt').replace(' ', '%20')
-        cfg.write({'x_last_status': 'جاري التحقق من الاتصال بـ %s ...' % host})
-        probe = 'printf brodan-sftp-ok | curl --connect-timeout 8 --max-time 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s > /tmp/brodan_sftp_probe.txt 2>&1' % (user, password, host, probe_url)
-        try:
-            env.cr.execute('SAVEPOINT brodan_bk')
-            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + probe + '$brodan$')
-            env.cr.execute('RELEASE SAVEPOINT brodan_bk')
-            pout = ''
-            try:
-                env.cr.execute("SELECT pg_read_file('/tmp/brodan_sftp_probe.txt')")
-                pout = str(env.cr.fetchone()[0] or '')
-            except Exception:
-                pout = ''
-            if pout.strip():
-                state = 'fail'
-                msg = 'السيرفر لا يصل إلى جهازك %s. الأفضل OneDrive: شغّل سكربت الربط والصق الرمز ثم نسخ الآن. تفصيل: %s' % (host, pout.strip()[:250])
-            else:
-                dump = 'nohup sh -c "pg_dump --no-owner -Fc %s | gzip | curl --connect-timeout 20 --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s" >/tmp/brodan_sftp_out.txt 2>&1 &' % (name, user, password, host, remote_url)
-                env.cr.execute('SAVEPOINT brodan_bk2')
-                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
-                env.cr.execute('RELEASE SAVEPOINT brodan_bk2')
-                state = 'ok'
-                msg = 'الاتصال نجح وبدأت النسخة في الخلفية إلى %s على %s.' % (remote, host)
-        except Exception as ex:
-            try:
-                env.cr.execute('ROLLBACK TO SAVEPOINT brodan_bk')
-            except Exception:
-                pass
-            state = 'fail'
-            msg = 'السيرفر لا يصل إلى اللاب. استخدم OneDrive بدلاً منه. تفصيل: ' + str(ex)[:250]
+    msg = 'الأفضل النسخ إلى OneDrive لأن السيرفر لا يصل إلى اللاب. شغّل سكربت الربط، الصق الرمز في حقل OneDrive، ثم حفظ ونسخ الآن. الحساب المجاني 5GB لا يكفي.'
+    state = 'skip'
 else:
     msg = 'الأفضل النسخ إلى OneDrive لأن السيرفر يصل للإنترنت ولا يصل إلى اللاب. شغّل سكربت الربط على ويندوز، الصق الرمز في حقل OneDrive، ثم حفظ ونسخ الآن. الحساب المجاني 5GB لا يكفي.'
 Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': ('onedrive:' + od_folder) if od_token else ((host or '') + ' ' + remote_dir)})
