@@ -15,10 +15,10 @@
                         <field name="active"/>
                     </group>
                     <group string="النسخ إلى القرص D (SFTP / IP)">
-                        <field name="sftp_host" placeholder="192.168.1.50"/>
-                        <field name="sftp_user"/>
+                        <field name="sftp_host" placeholder="192.168.8.18"/>
+                        <field name="sftp_user" placeholder="lenovo"/>
                         <field name="sftp_password" password="True"/>
-                        <field name="sftp_path" placeholder="D:/Brodansh_Backups"/>
+                        <field name="sftp_path" placeholder="D:/Zool Sulotion"/>
                     </group>
                     <group>
                         <field name="last_run" readonly="1"/>

@@ -13,7 +13,9 @@ MENU_NAME = "النسخ الاحتياطي"
 CRON_NAME = "BRODAN: نسخة احتياطية يومية"
 SERVER_ACTION_NAME = "BRODAN: تشغيل النسخة الاحتياطية"
 DEFAULT_FOLDER = "/var/tmp/brodan_backups"
-DEFAULT_SFTP_PATH = "D:/Brodansh_Backups"
+DEFAULT_SFTP_PATH = "D:/Zool Sulotion"
+DEFAULT_SFTP_HOST = "192.168.8.18"
+DEFAULT_SFTP_USER = "lenovo"
 DEFAULT_KEEP_DAYS = 2
 # Refuse a local dump unless free bytes exceed database size plus this margin.
 SAFETY_MARGIN_BYTES = 2 * 1024 * 1024 * 1024
@@ -47,7 +49,7 @@ def skip_message(db_size_bytes, free_bytes):
 def sftp_missing_message():
     return (
         "أدخل IP جهاز الويندوز في SFTP Host مع المستخدم وكلمة السر. "
-        "المسار الافتراضي على القرص D هو %s (فعّل OpenSSH Server على الجهاز)."
+        "المسار الافتراضي على القرص D هو %s (مشاركة \\\\WALEEDX1\\Zool Sulotion)."
         % DEFAULT_SFTP_PATH
     )
 
@@ -71,6 +73,7 @@ def sftp_upload_program(dbname, host, user, password, remote_dir, filename):
     if not (host and user and password and filename and dbname):
         return ""
     remote = "%s/%s" % (remote_dir.rstrip("/"), filename)
+    remote = remote.replace(" ", "%20")
     return (
         "pg_dump --no-owner -Fc %s | gzip | "
         "curl --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s "

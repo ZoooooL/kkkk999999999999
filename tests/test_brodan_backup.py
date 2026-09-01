@@ -36,17 +36,19 @@ class BrodanBackupTests(unittest.TestCase):
         self.assertEqual(mod.parse_df_available_bytes(text), 10)
 
     def test_windows_d_path_and_sftp_command(self):
-        self.assertEqual(mod.DEFAULT_SFTP_PATH, "D:/Brodansh_Backups")
-        self.assertIn("D:/Brodansh_Backups", mod.sftp_missing_message())
+        self.assertEqual(mod.DEFAULT_SFTP_PATH, "D:/Zool Sulotion")
+        self.assertEqual(mod.DEFAULT_SFTP_HOST, "192.168.8.18")
+        self.assertEqual(mod.DEFAULT_SFTP_USER, "lenovo")
+        self.assertIn("D:/Zool Sulotion", mod.sftp_missing_message())
         cmd = mod.sftp_upload_program(
             "brodansh",
-            "192.168.1.50",
-            "odoo",
+            "192.168.8.18",
+            "lenovo",
             "secret",
-            r"D:\Brodansh_Backups",
+            r"D:\Zool Sulotion",
             "brodansh_1.dump.gz",
         )
-        self.assertIn("sftp://192.168.1.50/D:/Brodansh_Backups/brodansh_1.dump.gz", cmd)
+        self.assertIn("sftp://192.168.8.18/D:/Zool%20Sulotion/brodansh_1.dump.gz", cmd)
         self.assertIn("pg_dump --no-owner -Fc brodansh", cmd)
         self.assertEqual(mod.sftp_upload_program("brodansh", "", "u", "p", "D:/x", "f"), "")
         self.assertEqual(mod.DEFAULT_FOLDER, "/var/tmp/brodan_backups")

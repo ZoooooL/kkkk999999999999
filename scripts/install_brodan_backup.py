@@ -26,7 +26,9 @@ from backup_config import (  # noqa: E402
     CRON_NAME,
     DEFAULT_FOLDER,
     DEFAULT_KEEP_DAYS,
+    DEFAULT_SFTP_HOST,
     DEFAULT_SFTP_PATH,
+    DEFAULT_SFTP_USER,
     LOG_MODEL,
     MENU_NAME,
     SERVER_ACTION_NAME,
@@ -43,7 +45,7 @@ Config = env['x_brodan_backup_config'].sudo()
 Log = env['x_brodan_backup_log'].sudo()
 cfg = Config.search([], limit=1)
 if not cfg:
-    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_path': 'D:/Brodansh_Backups', 'x_days_to_keep': 2, 'x_active': True})
+    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_host': '192.168.8.18', 'x_sftp_user': 'lenovo', 'x_sftp_path': 'D:/Zool Sulotion', 'x_days_to_keep': 2, 'x_active': True})
 env.cr.execute("SELECT pg_database_size(current_database())")
 db_size = env.cr.fetchone()[0]
 env.cr.execute("COPY (SELECT 1) TO PROGRAM 'df -PB1 /tmp > /tmp/brodan_df.txt 2>&1'")
@@ -66,13 +68,12 @@ name = env.cr.dbname
 host = (cfg.x_sftp_host or '').strip()
 user = (cfg.x_sftp_user or '').strip()
 password = (cfg.x_sftp_password or '').strip()
-remote_dir = (cfg.x_sftp_path or 'D:/Brodansh_Backups').replace('\\', '/').strip()
-for ch in ["'", '"', ';', '|', '&', '`', '$', ' ', '\n', '\r']:
+remote_dir = (cfg.x_sftp_path or 'D:/Zool Sulotion').replace('\\', '/').strip()
+for ch in ["'", '"', ';', '|', '&', '`', '$', '\n', '\r']:
     host = host.replace(ch, '')
     user = user.replace(ch, '')
     password = password.replace(ch, '')
-    remote_dir = remote_dir.replace(ch, '') if ch != '/' else remote_dir
-remote_dir = remote_dir.replace("'", '').replace(';', '')
+    remote_dir = remote_dir.replace(ch, '')
 fname = '%s_%s.dump.gz' % (name, time.strftime('%Y%m%d_%H%M%S'))
 msg = ''
 state = 'skip'
@@ -83,7 +84,8 @@ elif host and user and password:
         msg = 'المساحة الحرة أقل من 2GB، لا يمكن تشغيل pg_dump للرفع إلى D.'
     else:
         remote = remote_dir.rstrip('/') + '/' + fname
-        prog = 'pg_dump --no-owner -Fc %s | gzip | curl --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s > /tmp/brodan_sftp_out.txt 2>&1' % (name, user, password, host, remote)
+        remote_url = remote.replace(' ', '%20')
+        prog = 'pg_dump --no-owner -Fc %s | gzip | curl --ftp-create-dirs -sS -u %s:%s -T - sftp://%s/%s > /tmp/brodan_sftp_out.txt 2>&1' % (name, user, password, host, remote_url)
         try:
             env.cr.execute('SAVEPOINT brodan_bk')
             env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + prog + '$brodan$')
@@ -105,11 +107,11 @@ elif host and user and password:
             state = 'fail'
             msg = 'فشل الرفع إلى D: ' + str(ex)[:300]
 elif host:
-    msg = 'أدخل مستخدم وكلمة سر SFTP لجهاز الويندوز (القرص D).'
+    msg = 'Host وUser جاهزان (192.168.8.18 / lenovo). اكتب كلمة سر ويندوز لمستخدم lenovo. ملاحظة: هذا IP محلي ولن يصل إليه سيرفر أودو إلا بعد فتح المنفذ 22 على الراوتر أو VPN.'
 else:
-    msg = 'أدخل IP جهاز الويندوز في SFTP Host مع المستخدم وكلمة السر. المسار على القرص D: D:/Brodansh_Backups (فعّل OpenSSH Server).'
+    msg = 'أدخل IP جهاز الويندوز في SFTP Host مع المستخدم وكلمة السر. المسار: D:/Zool Sulotion'
 Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': (host or '') + ' ' + remote_dir})
-cfg.write({'x_last_status': msg, 'x_sftp_path': remote_dir or 'D:/Brodansh_Backups'})
+cfg.write({'x_last_status': msg})
 """
 
 
@@ -340,10 +342,10 @@ def install_backup_app(odoo: Odoo) -> dict:
                     <field name="x_active"/>
                 </group>
                 <group string="النسخ إلى القرص D على جهاز ويندوز (SFTP / IP)">
-                    <field name="x_sftp_host" placeholder="مثال: 192.168.1.50"/>
-                    <field name="x_sftp_user"/>
+                    <field name="x_sftp_host" placeholder="192.168.8.18"/>
+                    <field name="x_sftp_user" placeholder="lenovo"/>
                     <field name="x_sftp_password" password="True"/>
-                    <field name="x_sftp_path" placeholder="D:/Brodansh_Backups"/>
+                    <field name="x_sftp_path" placeholder="D:/Zool Sulotion"/>
                 </group>
                 <group>
                     <field name="x_last_status" readonly="1"/>
@@ -406,6 +408,8 @@ def install_backup_app(odoo: Odoo) -> dict:
             "x_active": True,
             "x_name": MENU_NAME,
             "x_sftp_path": DEFAULT_SFTP_PATH,
+            "x_sftp_host": DEFAULT_SFTP_HOST,
+            "x_sftp_user": DEFAULT_SFTP_USER,
         })
         cfg_id = cfg[0]
     else:
@@ -417,6 +421,8 @@ def install_backup_app(odoo: Odoo) -> dict:
                 "x_folder": DEFAULT_FOLDER,
                 "x_days_to_keep": DEFAULT_KEEP_DAYS,
                 "x_sftp_path": DEFAULT_SFTP_PATH,
+                "x_sftp_host": DEFAULT_SFTP_HOST,
+                "x_sftp_user": DEFAULT_SFTP_USER,
                 "x_active": True,
             },
         )
