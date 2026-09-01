@@ -3,7 +3,7 @@
 import { _t } from "@web/core/l10n/translation";
 import { rpc } from "@web/core/network/rpc";
 import { patch } from "@web/core/utils/patch";
-import { useState } from "@odoo/owl";
+import { useState, onMounted } from "@odoo/owl";
 import { LandingPage } from "@pos_self_order/app/pages/landing_page/landing_page";
 import { CartPage } from "@pos_self_order/app/pages/cart_page/cart_page";
 import { ProductListPage } from "@pos_self_order/app/pages/product_list_page/product_list_page";
@@ -119,6 +119,18 @@ patch(LandingPage.prototype, {
             this.mandoubCustomer.query = existing.name;
             this.mandoubCustomer.selected = existing;
         }
+        onMounted(async () => {
+            if (!this.showMandoubCustomer) {
+                return;
+            }
+            const fromUrl = customerFromUrl();
+            if (fromUrl && !this.mandoubCustomer.query) {
+                this.mandoubCustomer.query = fromUrl;
+            }
+            if (fromUrl && !currentMandoubPartner(this.selfOrder)?.id) {
+                await this.start();
+            }
+        });
     },
     get showMandoubCustomer() {
         return isMandoubKiosk(this.selfOrder);

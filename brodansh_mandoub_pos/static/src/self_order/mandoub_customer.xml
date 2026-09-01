@@ -50,8 +50,8 @@
     </t>
 
     <t t-name="brodansh_mandoub_pos.CartPage" t-inherit="pos_self_order.CartPage" t-inherit-mode="extension">
-        <xpath expr="//h1" position="after">
-            <div t-if="showMandoubCustomerBanner" class="mandoub-kiosk-customer-banner mb-0">
+        <xpath expr="//div[hasclass('order-cart-content')]/div[1]" position="after">
+            <div t-if="showMandoubCustomerBanner" class="mandoub-kiosk-customer-banner">
                 <span>العميل:</span>
                 <strong t-esc="mandoubCustomerLabel or 'اكتب اسم العميل'"/>
             </div>
