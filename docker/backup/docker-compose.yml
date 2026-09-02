@@ -1,0 +1,25 @@
+# Run on a machine that can reach PostgreSQL (Odoo host via host.docker.internal,
+# or a remote PGHOST). Does not migrate the ERP into Docker.
+#
+# OneDrive:
+#   docker compose --env-file .env up --build
+# Windows SFTP over Tailscale:
+#   set DEST=sftp and TS_AUTHKEY in .env, then the same command.
+
+services:
+  backup:
+    build: .
+    image: brodan-backup:local
+    env_file:
+      - path: .env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - rclone-data:/var/lib/rclone
+    restart: "no"
+
+volumes:
+  tailscale-state:
+  rclone-data:

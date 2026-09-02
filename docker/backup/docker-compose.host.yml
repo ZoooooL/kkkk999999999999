@@ -1,0 +1,24 @@
+# Use this file when Docker is installed on the Odoo server itself.
+# Host networking lets pg_dump talk to local Postgres on 127.0.0.1
+# and Tailscale userspace SOCKS on 127.0.0.1:1055.
+#
+#   docker compose -f docker-compose.host.yml --env-file .env up --build
+
+services:
+  backup:
+    build: .
+    image: brodan-backup:local
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PGHOST: "127.0.0.1"
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - rclone-data:/var/lib/rclone
+    restart: "no"
+
+volumes:
+  tailscale-state:
+  rclone-data:

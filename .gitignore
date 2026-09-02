@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .env
+docker/backup/.env
+docker/backup/rclone.conf
