@@ -949,6 +949,34 @@ def apply_quotation_workflow(client: OdooClient, company_id: int, config_ids: li
     return log
 
 
+def disable_mandoub_kiosk(client: OdooClient, company_id: int) -> list[str]:
+    """Mandoub phones should use logged-in POS (حفظ و طباعة), not /pos-self kiosk."""
+    log: list[str] = []
+    configs = client.execute(
+        "pos.config",
+        "search_read",
+        [("company_id", "=", company_id), ("active", "=", True)],
+        fields=["name", "self_ordering_mode"],
+    )
+    mandoub = [row for row in configs if is_mandoub_pos_name(row["name"])]
+    for config in mandoub:
+        mode = config.get("self_ordering_mode") or "nothing"
+        if mode == "nothing":
+            log.append("Already mobile POS (no kiosk): %s" % config["name"])
+            continue
+        try:
+            client.execute(
+                "pos.config",
+                "write",
+                [config["id"]],
+                {"self_ordering_mode": "nothing"},
+            )
+            log.append("Kiosk off → mobile POS for %s (was %s)" % (config["name"], mode))
+        except xmlrpc.client.Fault as err:
+            log.append("Could not disable kiosk on %s: %s" % (config["name"], err.faultString[:180]))
+    return log
+
+
 def configure(client: OdooClient, company_id: int) -> list[str]:
     log: list[str] = []
     configs = client.execute(
@@ -964,6 +992,7 @@ def configure(client: OdooClient, company_id: int) -> list[str]:
     close_log, users_by_config = close_empty_sessions(client, mandoub)
     log.extend(close_log)
     log.extend(assign_cashier_and_credit(client, mandoub, users_by_config, company_id, client.uid))
+    log.extend(disable_mandoub_kiosk(client, company_id))
     log.extend(open_mandoub_sessions(client, mandoub, users_by_config, company_id))
     pos_ids = [row["id"] for row in mandoub]
     log.extend(consolidate_kitchen_to_shared_session(client, company_id, pos_ids))
@@ -1267,6 +1296,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Stop Odoo security-update emails (password/login/email changed).",
     )
+    parser.add_argument(
+        "--mobile-pos",
+        action="store_true",
+        help="Turn off kiosk on mandoub configs so phones use logged-in POS (حفظ و طباعة).",
+    )
     return parser.parse_args()
 
 
@@ -1311,6 +1345,10 @@ def main() -> None:
         return
     if args.stop_security_mails:
         for line in disable_security_update_mails(client):
+            print(line)
+        return
+    if args.mobile_pos:
+        for line in disable_mandoub_kiosk(client, company_id):
             print(line)
         return
     if args.kitchen_only:

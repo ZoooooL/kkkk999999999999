@@ -132,11 +132,59 @@ class SaleOrder(models.Model):
 
     def _mandoub_payment_term(self, company):
         Term = self.env["account.payment.term"].sudo()
-        term = Term.search(
-            [("name", "=", CREDIT_PAYMENT_TERM_NAME), ("company_id", "in", [company.id, False])],
-            limit=1,
-        )
-        return term or Term.search([("name", "ilike", "30"), ("company_id", "in", [company.id, False])], limit=1)
+        company_ids = [company.id, False]
+        for name in (CREDIT_PAYMENT_TERM_NAME, "30 Days", "30 يوما"):
+            term = Term.search([("name", "=", name), ("company_id", "in", company_ids)], limit=1)
+            if term:
+                return term
+        return Term.search([("name", "ilike", "30"), ("company_id", "in", company_ids)], limit=1)
+
+    def _attach_sale_packaging(self, vals):
+        """Link each quotation line to the product's sales packaging (2 cartons × 24 = 48)."""
+        Packaging = self.env["product.packaging"].sudo()
+        Line = self.env["sale.order.line"]
+        has_studio = "x_studio_pack_qty" in Line._fields
+        has_pack_id = "product_packaging_id" in Line._fields
+        has_pack_qty = "product_packaging_qty" in Line._fields
+        for _cmd, _id, line in vals.get("order_line") or []:
+            product_id = line.get("product_id")
+            if not product_id:
+                continue
+            pack_unit = line.get("x_studio_pack_qty")
+            carton = line.get("product_packaging_qty")
+            pack = False
+            if has_pack_id and line.get("product_packaging_id"):
+                pack = Packaging.browse(line["product_packaging_id"])
+            if not pack and pack_unit:
+                pack = Packaging.search(
+                    [
+                        ("product_id", "=", product_id),
+                        ("sales", "=", True),
+                        ("qty", "=", pack_unit),
+                    ],
+                    limit=1,
+                )
+            if not pack:
+                pack = Packaging.search(
+                    [("product_id", "=", product_id), ("sales", "=", True), ("qty", ">", 0)],
+                    order="qty asc",
+                    limit=1,
+                )
+            if pack:
+                if has_pack_id:
+                    line["product_packaging_id"] = pack.id
+                if pack_unit in (None, False):
+                    pack_unit = pack.qty
+            if has_pack_qty and carton not in (None, False):
+                line["product_packaging_qty"] = carton
+            if has_studio and pack_unit not in (None, False):
+                line["x_studio_pack_qty"] = pack_unit
+            if not has_studio:
+                line.pop("x_studio_pack_qty", None)
+            if not has_pack_id:
+                line.pop("product_packaging_id", None)
+            if not has_pack_qty:
+                line.pop("product_packaging_qty", None)
 
     def _fill_zero_prices(self, vals, payload):
         """If POS sent 0.00, use the product sales price."""
@@ -181,6 +229,7 @@ class SaleOrder(models.Model):
                 raise UserError(_("اختر العميل قبل إنشاء الطلب.")) from err
             raise UserError(_("أضف أصنافاً قبل إنشاء الطلب.")) from err
         self._fill_zero_prices(vals, payload)
+        self._attach_sale_packaging(vals)
         existing = self.sudo().search(
             [
                 ("client_order_ref", "=", vals.get("client_order_ref")),

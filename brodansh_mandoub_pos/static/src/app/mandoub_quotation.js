@@ -448,9 +448,10 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 const product = line.get_product ? line.get_product() : line.product_id;
                 const cartonQty = Number(line.get_quantity ? line.get_quantity() : line.qty) || 0;
                 const packQty = productPackUnit(product);
+                const pieceQty = wholesaleLineQty([packQty], cartonQty, packQty);
                 return {
                     product_id: recordId(product),
-                    qty: cartonQty,
+                    qty: pieceQty,
                     carton_qty: cartonQty,
                     pack_qty: packQty,
                     price_unit: line.get_unit_price ? line.get_unit_price() : line.price_unit,
@@ -562,8 +563,9 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                     this,
                     "account.payment.term",
                     [
+                        "|",
                         ["name", "=", "30 يوماً"],
-                        ["company_id", "in", companyId ? [companyId, false] : [false]],
+                        ["name", "=", "30 Days"],
                     ],
                     ["id"]
                 );
@@ -572,24 +574,24 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                 paymentTermId = false;
             }
             const lines = (payload.lines || []).map((line, index) => {
-                const cartonQty = Number(line.carton_qty || line.qty) || 0;
+                const cartonQty = Number(line.carton_qty);
+                const packCount = cartonQty > 0 ? cartonQty : Number(line.qty) || 0;
                 const packQty = Number(line.pack_qty) || productPackUnit({ mandoub_pack_qty: line.pack_qty });
-                const pieceQty = wholesaleLineQty([packQty], cartonQty, packQty || DEFAULT_PACK_QTY);
+                const pieceQty = wholesaleLineQty([packQty], packCount, packQty || DEFAULT_PACK_QTY);
                 const name = line.full_product_name
-                    ? `${line.full_product_name} — ${cartonQty} كرتون × ${packQty || DEFAULT_PACK_QTY}`
+                    ? `${line.full_product_name} — ${packCount} كرتون × ${packQty || DEFAULT_PACK_QTY}`
                     : false;
-                return [
-                    0,
-                    0,
-                    {
-                        sequence: (index + 1) * 10,
-                        product_id: line.product_id,
-                        product_uom_qty: pieceQty,
-                        price_unit: line.price_unit,
-                        discount: line.discount || 0,
-                        name,
-                    },
-                ];
+                const vals = {
+                    sequence: (index + 1) * 10,
+                    product_id: line.product_id,
+                    product_uom_qty: pieceQty,
+                    price_unit: line.price_unit,
+                    discount: line.discount || 0,
+                    product_packaging_qty: packCount,
+                    x_studio_pack_qty: packQty || DEFAULT_PACK_QTY,
+                    name,
+                };
+                return [0, 0, vals];
             });
             const vals = {
                 partner_id: payload.partner_id,
@@ -631,9 +633,10 @@ odoo.define("brodansh_mandoub_pos.mandoub_quotation", [
                                 to_invoice: false,
                                 general_note: `[طلب] | ${order.name}`,
                                 lines: (payload.lines || []).map((line) => {
-                                    const cartonQty = Number(line.carton_qty || line.qty) || 0;
+                                    const cartonQty = Number(line.carton_qty);
+                                    const packCount = cartonQty > 0 ? cartonQty : Number(line.qty) || 0;
                                     const packQty = Number(line.pack_qty) || DEFAULT_PACK_QTY;
-                                    const pieceQty = wholesaleLineQty([packQty], cartonQty, packQty);
+                                    const pieceQty = wholesaleLineQty([packQty], packCount, packQty);
                                     return [
                                         0,
                                         0,
