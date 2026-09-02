@@ -49,7 +49,19 @@ cp .env.example .env
 
 [console.hetzner.cloud](https://console.hetzner.cloud) → FSN1 أو NBG1 → Ubuntu 24.04 → **CX33** → الاسم **`brodansh-live2`**.
 
-أضف سجل DNS **جديد**: `odoo.zouljanaheen.com` → IP هيتزنر. لا تغيّر `brodansh.de.com.eg` ولا `zouljanaheen.com`.
+أضف سجل DNS **جديد** في Namecheap على **`zouljanaheen.com`** فقط:
+
+| Type | Host | Value |
+| --- | --- | --- |
+| A | `odoo` | IP سيرفر Live 2 (Hetzner CX33) |
+
+لا تغيّر `@` ولا `www` (المتجر) ولا `brodansh.de.com.eg`. النطاق `zouljanaheeen.com` (حرف e زائد) غير مسجّل.
+
+```bash
+./scripts/live2-dns.sh
+```
+
+ثم على السيرفر الجديد: `./scripts/ssl-init.sh`.
 
 ## حماية Live 1
 
