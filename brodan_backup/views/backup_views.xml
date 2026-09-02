@@ -28,7 +28,7 @@
                     <group>
                         <field name="last_run" readonly="1"/>
                         <field name="last_status" readonly="1"/>
-                        <div class="text-muted">شغّل سكربت ربط OneDrive على اللاب، الصق الرمز، احفظ، ثم نسخ الآن. الحساب المجاني 5GB لا يكفي.</div>
+                        <div class="text-muted">نسخ الآن يرفع القاعدة فقط. المرفقات تُرفع كملف tar.gz منفصل إلى OneDrive. الحساب المجاني 5GB لا يكفي.</div>
                     </group>
                 </sheet>
             </form>

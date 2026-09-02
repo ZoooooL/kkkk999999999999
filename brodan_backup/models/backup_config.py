@@ -2,6 +2,7 @@
 """Helpers shared by the Python addon and the XML-RPC installer."""
 
 import json
+import os
 
 STUCK_BACKUP_MODULE_NAMES = (
     "brodan_backup",
@@ -14,6 +15,8 @@ LOG_MODEL = "x_brodan_backup_log"
 MENU_NAME = "النسخ الاحتياطي"
 CRON_NAME = "BRODAN: نسخة احتياطية يومية"
 SERVER_ACTION_NAME = "BRODAN: تشغيل النسخة الاحتياطية"
+FILESTORE_ACTION_NAME = "BRODAN: تشغيل نسخة المرفقات"
+RPC_TMP_PARAM = "brodan.rpc_tmp"
 BACKUP_OWNER_LOGIN = "whmm2299@hotmail.com"
 BACKUP_OWNER_UID = 2
 BACKUP_GROUP_NAME = "Brodansh Backup Owner"
@@ -22,6 +25,7 @@ LEFTOVER_BACKUP_ACTION_NAMES = (
     "BRODAN: onedrive meta",
     "BRODAN: run ts check",
     "BRODAN: stop od dump",
+    "BRODAN: host cmd",
 )
 DEFAULT_FOLDER = "/var/tmp/brodan_backups"
 DEFAULT_SFTP_PATH = "/D:/Zool Sulotion"
@@ -455,3 +459,39 @@ def parse_df_available_bytes(df_text):
         except ValueError:
             continue
     return min(available) if available else None
+
+
+def filestore_stream_path():
+    return os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts", "brodan_filestore_stream.py")
+    )
+
+
+def filestore_stream_script():
+    with open(filestore_stream_path(), "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def filestore_stream_write_program():
+    """Shell that writes the filestore tar.gz uploader onto the Odoo host."""
+    import base64
+
+    b64 = base64.b64encode(filestore_stream_script().encode("utf-8")).decode("ascii")
+    inner = (
+        "import base64,os; open('/var/tmp/brodan_filestore_stream.py','wb').write("
+        "base64.b64decode('%s')); os.chmod('/var/tmp/brodan_filestore_stream.py', 0o755)"
+    ) % b64
+    return "python3 -c %s" % json.dumps(inner)
+
+
+def filestore_rcat_program(dbname, folder, filename):
+    dbname = shell_token(dbname)
+    folder = shell_token(folder) or DEFAULT_ONEDRIVE_FOLDER
+    filename = shell_token(filename)
+    if not (dbname and filename):
+        return ""
+    return (
+        "rm -f /tmp/rclone-spool*; : > /tmp/brodan_fs_out.txt; nohup python3 "
+        "/var/tmp/brodan_filestore_stream.py %s %s %s >>/tmp/brodan_fs_out.txt 2>&1 &"
+        % (dbname, folder, filename)
+    )

@@ -13,6 +13,7 @@ import json
 import os
 import socket
 import sys
+import time
 import xmlrpc.client
 from pathlib import Path
 
@@ -39,6 +40,8 @@ from backup_config import (  # noqa: E402
     MENU_NAME,
     SERVER_ACTION_NAME,
     STUCK_BACKUP_MODULE_NAMES,
+    FILESTORE_ACTION_NAME,
+    RPC_TMP_PARAM,
     local_dump_allowed,
     onedrive_missing_message,
     parse_df_available_bytes,
@@ -50,6 +53,8 @@ from backup_config import (  # noqa: E402
     stream_write_program,
     sftp_stream_write_program,
     rclone_write_sftp_conf_program,
+    filestore_stream_write_program,
+    filestore_rcat_program,
 )
 
 BACKUP_CODE_TEMPLATE = r"""
@@ -157,7 +162,7 @@ elif ts_ok:
                     dump = "rm -f /tmp/rclone-spool*; : > /tmp/brodan_sftp_out.txt; nohup python3 /var/tmp/brodan_sftp_stream.py %s '%s' %s >>/tmp/brodan_sftp_out.txt 2>&1 &" % (name, safe_dir, fname)
                     env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
                     state = 'ok'
-                    msg = 'بدأ النسخ إلى اللاب %s/%s عبر Tailscale. لا تضغط نسخ الآن حتى ينتهي.' % (safe_dir, fname)
+                    msg = 'بدأ النسخ إلى اللاب %s/%s عبر Tailscale. هذه نسخة القاعدة فقط بدون المرفقات. لا تضغط نسخ الآن حتى ينتهي.' % (safe_dir, fname)
         except Exception as ex:
             state = 'fail'
             msg = 'فشل النسخ إلى اللاب: ' + str(ex)[:300]
@@ -225,7 +230,7 @@ elif od_token:
                     env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
                     env.cr.execute('RELEASE SAVEPOINT brodan_od2')
                     state = 'ok'
-                    msg = 'بدأ النسخ إلى OneDrive/%s/%s بدون ملف مؤقت (قياس ثم رفع). قد يستغرق ساعات. لا تضغط نسخ الآن مرة أخرى حتى ينتهي.' % (od_folder, fname)
+                    msg = 'بدأ النسخ إلى OneDrive/%s/%s بدون ملف مؤقت (قياس ثم رفع). هذه نسخة القاعدة فقط بدون المرفقات. قد يستغرق ساعات. لا تضغط نسخ الآن مرة أخرى حتى ينتهي.' % (od_folder, fname)
         except Exception as ex:
             try:
                 env.cr.execute('ROLLBACK TO SAVEPOINT brodan_od1')
@@ -250,6 +255,53 @@ BACKUP_CODE = (
     .replace("SFTP_STREAM_WRITE", repr(sftp_stream_write_program()))
     .replace("SFTP_CONF_WRITE", repr(rclone_write_sftp_conf_program()))
 )
+
+FILESTORE_CODE_TEMPLATE = r"""
+Config = env['x_brodan_backup_config'].sudo()
+Log = env['x_brodan_backup_log'].sudo()
+cfg = Config.search([], limit=1)
+if not cfg:
+    cfg = Config.create({'x_name': 'النسخ الاحتياطي', 'x_folder': '/var/tmp/brodan_backups', 'x_sftp_host': '100.78.222.34', 'x_sftp_user': 'lenovo', 'x_sftp_path': '/D:/Zool Sulotion', 'x_onedrive_folder': 'Brodansh_Backups', 'x_onedrive_drive_type': 'personal', 'x_days_to_keep': 2, 'x_active': True})
+od_folder = (cfg.x_onedrive_folder or 'Brodansh_Backups').strip()
+for ch in ["'", '"', ';', '|', '&', '`', '$', '\n', '\r', ' ', '\\']:
+    od_folder = od_folder.replace(ch, '')
+if not od_folder:
+    od_folder = 'Brodansh_Backups'
+fname = 'brodansh_filestore_%s.tar.gz' % time.strftime('%Y%m%d_%H%M%S')
+param = env['ir.config_parameter'].sudo().get_param('brodan.rpc_tmp') or ''
+lock_check = "if [ -f /tmp/brodan_backup.lock ] && kill -0 $(cat /tmp/brodan_backup.lock) 2>/dev/null; then echo RUNNING; elif pgrep -x pg_dump >/dev/null 2>&1; then echo RUNNING; else echo NONE; fi > /tmp/brodan_lock_check.txt"
+state = 'fail'
+msg = ''
+if not param or '"key"' not in param:
+    state = 'skip'
+    msg = 'لا يمكن رفع المرفقات من الواجهة مباشرة.'
+else:
+    try:
+        env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + lock_check + '$brodan$')
+        running = ''
+        try:
+            env.cr.execute("SELECT pg_read_file('/tmp/brodan_lock_check.txt')")
+            running = str(env.cr.fetchone()[0] or '')
+        except Exception:
+            running = ''
+        if 'RUNNING' in running:
+            state = 'skip'
+            msg = 'نسخة أخرى ما زالت تعمل. انتظر حتى تنتهي ثم أعد رفع المرفقات.'
+        else:
+            write_py = FILESTORE_WRITE
+            dump = 'rm -f /tmp/rclone-spool*; : > /tmp/brodan_fs_out.txt; nohup python3 /var/tmp/brodan_filestore_stream.py %s %s %s >>/tmp/brodan_fs_out.txt 2>&1 &' % (env.cr.dbname, od_folder, fname)
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + write_py + '$brodan$')
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
+            state = 'ok'
+            msg = 'بدأ رفع المرفقات مضغوطة إلى OneDrive/%s/%s. هذه الملفات كاملة (صور ومستندات). قد يستغرق ساعات. لا تضغط نسخ الآن حتى ينتهي.' % (od_folder, fname)
+    except Exception as ex:
+        state = 'fail'
+        msg = 'فشل بدء رفع المرفقات: ' + str(ex)[:300]
+Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': 'onedrive:' + od_folder})
+cfg.write({'x_last_status': msg})
+"""
+FILESTORE_CODE = FILESTORE_CODE_TEMPLATE.replace("FILESTORE_WRITE", repr(filestore_stream_write_program()))
+
 
 
 def load_dotenv(path: Path) -> None:
@@ -422,7 +474,7 @@ def restrict_backup_to_owner(odoo: Odoo) -> dict:
     server_ids = odoo.execute(
         "ir.actions.server",
         "search",
-        [("name", "in", [SERVER_ACTION_NAME, CRON_NAME])],
+        [("name", "in", [SERVER_ACTION_NAME, CRON_NAME, FILESTORE_ACTION_NAME])],
     ) or []
     _set_groups(odoo, "ir.actions.server", server_ids, gid)
 
@@ -637,7 +689,7 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
                 </group>
                 <group>
                     <field name="x_last_status" readonly="1"/>
-                    <div class="text-muted">شغّل سكربت ربط OneDrive على اللاب، الصق الرمز هنا، احفظ، ثم نسخ الآن. الحساب المجاني 5GB لا يكفي لقاعدة ~50GB.</div>
+                    <div class="text-muted">نسخ الآن يرفع القاعدة فقط. المرفقات (صور ومستندات) تُرفع كملف tar.gz منفصل إلى نفس مجلد OneDrive. الحساب المجاني 5GB لا يكفي.</div>
                 </group>
             </sheet>
         </form>
@@ -664,6 +716,19 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
         server_id = server[0]
     else:
         server_id = odoo.execute("ir.actions.server", "create", server_vals)
+
+    fs_action = odoo.execute("ir.actions.server", "search", [("name", "=", FILESTORE_ACTION_NAME)], limit=1)
+    fs_vals = {
+        "name": FILESTORE_ACTION_NAME,
+        "model_id": config_model_id,
+        "state": "code",
+        "code": FILESTORE_CODE,
+    }
+    if fs_action:
+        odoo.execute("ir.actions.server", "write", fs_action, fs_vals)
+        fs_action_id = fs_action[0]
+    else:
+        fs_action_id = odoo.execute("ir.actions.server", "create", fs_vals)
 
     form_arch = form_arch % {"action": server_id}
     ensure_view(odoo, "view_config_form", CONFIG_MODEL, "form", form_arch, "x.brodan.backup.config.form")
@@ -751,6 +816,7 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
         "config_id": cfg_id,
         "cron_id": cron_id,
         "server_id": server_id,
+        "filestore_action_id": fs_action_id,
         "config": cfg_row,
         "logs": logs,
         "rclone": rclone_ver,
@@ -759,33 +825,140 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
     }
 
 
+def ensure_filestore_action(odoo: Odoo) -> int:
+    model_ids = odoo.execute("ir.model", "search", [("model", "=", CONFIG_MODEL)], limit=1)
+    if not model_ids:
+        raise SystemExit("backup config model missing; run --apply first")
+    found = odoo.execute("ir.actions.server", "search", [("name", "=", FILESTORE_ACTION_NAME)], limit=1)
+    vals = {
+        "name": FILESTORE_ACTION_NAME,
+        "model_id": model_ids[0],
+        "state": "code",
+        "code": FILESTORE_CODE,
+    }
+    if found:
+        odoo.execute("ir.actions.server", "write", found, vals)
+        return found[0]
+    return odoo.execute("ir.actions.server", "create", vals)
+
+
+def run_host_cmd(odoo: Odoo, shell: str, out_path: str, param_key: str) -> str:
+    """Run a short host command via COPY TO PROGRAM and return stdout from out_path."""
+    cmd = shell + " > " + out_path + " 2>&1"
+    code = (
+        "cmd = %s\n"
+        "env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + cmd + '$brodan$')\n"
+        "env.cr.execute(\"SELECT pg_read_file(%s)\")\n"
+        "out = env.cr.fetchone()[0] or ''\n"
+        "env['ir.config_parameter'].sudo().set_param(%s, out[:50000])\n"
+    ) % (repr(cmd), repr(out_path), repr(param_key))
+    name = "BRODAN: host cmd"
+    model_ids = odoo.execute("ir.model", "search", [("model", "=", CONFIG_MODEL)], limit=1)
+    found = odoo.execute("ir.actions.server", "search", [("name", "=", name)])
+    vals = {"name": name, "model_id": model_ids[0], "state": "code", "code": code}
+    if found:
+        odoo.execute("ir.actions.server", "write", found, vals)
+        aid = found[0]
+    else:
+        aid = odoo.execute("ir.actions.server", "create", vals)
+    try:
+        odoo.execute("ir.actions.server", "run", [aid])
+        rows = odoo.execute("ir.config_parameter", "search_read", [("key", "=", param_key)], ["value"], limit=1)
+        return str(rows[0]["value"]) if rows else ""
+    finally:
+        try:
+            odoo.execute("ir.actions.server", "unlink", [aid])
+        except Exception:
+            pass
+        ids = odoo.execute("ir.config_parameter", "search", [("key", "=", param_key)])
+        if ids:
+            try:
+                odoo.execute("ir.config_parameter", "unlink", ids)
+            except Exception:
+                pass
+
+
+def start_filestore_backup(odoo: Odoo) -> dict:
+    """Inject short-lived RPC auth and start the filestore tar.gz upload to OneDrive."""
+    action_id = ensure_filestore_action(odoo)
+    restrict_backup_to_owner(odoo)
+    auth = {
+        "url": "http://127.0.0.1:8069",
+        "db": require_env("ODOO_DB"),
+        "user": require_env("ODOO_USERNAME"),
+        "key": require_env("ODOO_API_KEY"),
+    }
+    odoo.execute("ir.config_parameter", "set_param", RPC_TMP_PARAM, json.dumps(auth))
+    try:
+        odoo.execute("ir.actions.server", "run", [action_id])
+    except Exception:
+        ids = odoo.execute("ir.config_parameter", "search", [("key", "=", RPC_TMP_PARAM)])
+        if ids:
+            odoo.execute("ir.config_parameter", "unlink", ids)
+        raise
+    status = ""
+    leftover = True
+    for _ in range(8):
+        time.sleep(2)
+        status = run_host_cmd(
+            odoo,
+            "cat /tmp/brodan_fs_status.txt; echo; tail -n 8 /tmp/brodan_fs_out.txt; echo; "
+            "if [ -f /tmp/brodan_backup.lock ]; then echo lock=$(cat /tmp/brodan_backup.lock); "
+            "ps -p $(cat /tmp/brodan_backup.lock) -o pid,user,etime,cmd 2>/dev/null || echo dead; fi",
+            "/tmp/brodan_fs_poll.txt",
+            "brodan.fs_poll",
+        )
+        leftover_ids = odoo.execute("ir.config_parameter", "search", [("key", "=", RPC_TMP_PARAM)])
+        leftover = bool(leftover_ids)
+        if leftover_ids and ("AUTH_OK" in status or "PASS1" in status or "FAIL" in status):
+            odoo.execute("ir.config_parameter", "unlink", leftover_ids)
+            leftover = False
+        if "AUTH_OK" in status or "PASS1" in status or "FAIL" in status or "SKIP" in status:
+            break
+    logs = odoo.execute(LOG_MODEL, "search_read", [], ["x_name", "x_state", "x_message", "x_size"], limit=3, order="id desc")
+    cfg = odoo.execute(CONFIG_MODEL, "search_read", [], ["x_last_status"], limit=1)
+    return {
+        "action_id": action_id,
+        "status": status[:2000],
+        "auth_param_left": leftover,
+        "logs": logs,
+        "config": cfg,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--restrict", action="store_true", help="Hide backup UI from everyone except the owner")
     parser.add_argument("--run", action="store_true", help="Run a backup/probe after installing")
+    parser.add_argument("--filestore-now", action="store_true", help="Start a compressed filestore upload to OneDrive")
     args = parser.parse_args(argv)
     load_dotenv(ROOT / ".env")
     odoo = Odoo(require_env("ODOO_URL"), require_env("ODOO_DB"), require_env("ODOO_USERNAME"), require_env("ODOO_API_KEY"))
     cleanup = []
     installed = {"apply": False}
     restricted = {}
+    filestore = {}
     if args.apply:
         cleanup = cleanup_stuck_modules(odoo)
         installed = install_backup_app(odoo, run_now=args.run)
         restricted = installed.get("restricted") or {}
     elif args.restrict:
         restricted = restrict_backup_to_owner(odoo)
+    if args.filestore_now:
+        filestore = start_filestore_backup(odoo)
     report = {
         "database": odoo.db,
         "apply": args.apply,
         "cleanup": cleanup,
         "installed": installed,
         "restricted": restricted,
+        "filestore": filestore,
         "helpers": {
             "skip_example": skip_message(54 * 1024 ** 3, 6 * 1024 ** 3),
             "onedrive": onedrive_missing_message(),
             "rclone_rcat": rclone_rcat_program("brodansh", "Brodansh_Backups", "brodansh.dump.gz"),
+            "filestore_rcat": filestore_rcat_program("brodansh", "Brodansh_Backups", "brodansh_filestore.tar.gz"),
             "parse_df": parse_df_available_bytes(
                 "Filesystem 1-blocks Used Available Capacity Mounted on\n/dev/root 100 90 10 90% /\n"
             ),
