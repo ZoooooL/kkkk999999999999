@@ -1,0 +1,87 @@
+name: brodansh-odoo
+
+services:
+  db:
+    image: postgres:${POSTGRES_VERSION:-16}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data/pgdata
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - odoo
+    shm_size: 256mb
+
+  odoo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: brodansh-odoo:${ODOO_VERSION:-18.0}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      HOST: db
+      PORT: "5432"
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - ./config/odoo.conf.runtime:/etc/odoo/odoo.conf:ro
+      - ./addons:/mnt/extra-addons
+      - ./enterprise:/mnt/enterprise
+    ports:
+      - "${ODOO_BIND:-0.0.0.0}:${ODOO_HTTP_PORT:-8069}:8069"
+      - "${ODOO_BIND:-0.0.0.0}:${ODOO_GEVENT_PORT:-8072}:8072"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8069/web/health || curl -fsS http://127.0.0.1:8069/web/database/selector || curl -fsS http://127.0.0.1:8069/web/login || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    networks:
+      - odoo
+
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["prod"]
+    depends_on:
+      odoo:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/odoo.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/letsencrypt:ro
+      - ./certs/www:/var/www/certbot:ro
+    networks:
+      - odoo
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["prod"]
+    volumes:
+      - ./certs:/etc/letsencrypt
+      - ./certs/www:/var/www/certbot
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew; sleep 12h; done"
+
+volumes:
+  postgres-data:
+  odoo-data:
+
+networks:
+  odoo:
+    driver: bridge
