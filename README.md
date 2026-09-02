@@ -63,6 +63,12 @@ cp .env.example .env
 
 ثم على السيرفر الجديد: `./scripts/ssl-init.sh`.
 
+رابط مؤقت لفتح Live 2 الآن (بدون تغيير DNS):
+
+```bash
+./scripts/live2-public-tunnel.sh
+```
+
 ## حماية Live 1
 
 | ممنوع | مسموح |
