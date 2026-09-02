@@ -63,7 +63,15 @@ cp .env.example .env
 
 ثم على السيرفر الجديد: `./scripts/ssl-init.sh`.
 
-رابط مؤقت لفتح Live 2 الآن (بدون تغيير DNS):
+## رفع Live 2 على Hetzner (`ubuntu-8gb-fsn1-1` / `167.233.205.193`)
+
+من **Console** في لوحة هيتزنر (كمستخدم root)، الصقوا:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ZoooooL/kkkk999999999999/cursor/odoo-docker-ubuntu-d375/scripts/bootstrap-hetzner-live2.sh | bash
+```
+
+بعدها افتحوا `http://167.233.205.193:8069`. لا تغيّروا DNS لـ `brodansh.de.com.eg` ولا للمتجر.
 
 ```bash
 ./scripts/live2-public-tunnel.sh

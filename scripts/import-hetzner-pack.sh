@@ -60,4 +60,4 @@ echo "Restoring database + filestore..."
 ./scripts/restore.sh "$INNER/data"
 docker compose --env-file .env up -d odoo
 echo "Import complete. Open http://$(hostname -I | awk '{print $1}'):8069"
-echo "Then point DNS brodansh.de.com.eg here and run ./scripts/ssl-init.sh"
+echo "Do not point brodansh.de.com.eg here. Add A record odoo.zouljanaheen.com then ./scripts/ssl-init.sh"
