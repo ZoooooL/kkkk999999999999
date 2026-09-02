@@ -5,7 +5,7 @@
 # Does not spend money unless HCLOUD_TOKEN is set. Console steps are printed either way.
 set -euo pipefail
 
-SERVER_NAME=${HCLOUD_SERVER_NAME:-brodansh-odoo}
+SERVER_NAME=${HCLOUD_SERVER_NAME:-brodansh-live2}
 SERVER_TYPE=${HCLOUD_SERVER_TYPE:-cx33}
 IMAGE=${HCLOUD_IMAGE:-ubuntu-24.04}
 PRIMARY_LOCATION=${HCLOUD_LOCATION:-fsn1}
@@ -22,7 +22,7 @@ echo
 
 print_console_steps() {
   cat <<'EOF'
-Create it in the console (no API token needed):
+Create Live 2 in the console (Live 1 / brodansh.de.com.eg is never changed):
 
   1. https://console.hetzner.cloud  → project → Add Server
   2. Location: Falkenstein (fsn1). If unavailable, Nuremberg (nbg1).
@@ -31,7 +31,7 @@ Create it in the console (no API token needed):
   5. Networking: IPv4 + IPv6
   6. Enable Backups
   7. SSH key: your public key
-  8. Name: brodansh-odoo
+  8. Name: brodansh-live2
   9. Create (~€8.99/mo with IPv4, +20% for backups)
 
 Then:
@@ -39,8 +39,9 @@ Then:
   ssh root@SERVER_IP
   git clone <this-repo> /opt/odoo && cd /opt/odoo
   ./scripts/install-ubuntu-docker.sh
-  cp .env.example .env && vim .env
+  cp .env.example .env && vim .env   # keep ODOO_DOMAIN=live2.brodansh.de.com.eg
   ./scripts/up.sh
+  # clone data with a READ-ONLY dump from Live 1, never switch Live 1 DNS
 EOF
 }
 

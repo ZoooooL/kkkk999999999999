@@ -2,9 +2,12 @@
 # Copy a local Docker pack to Hetzner CX33 and import it.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/protect-live1.sh"
 
 DEST=${1:-${HETZNER_SSH:-}}
 PACK=${2:-}
+forbid_touching_live1 "$DEST"
 if [[ -z $DEST ]]; then
   echo "Usage: $0 root@CX33_IP [pack.tar.gz]" >&2
   echo "Example: $0 root@162.55.x.x backups/brodansh-cx33-XXXX.tar.gz" >&2
@@ -36,5 +39,5 @@ chmod +x /tmp/import-hetzner-pack.sh
 /tmp/import-hetzner-pack.sh $REMOTE_PACK /opt/odoo
 EOF
 
-echo "Deployed to $DEST. Keep DNS on the old AWS host until you confirm login, POS, and PDFs."
-echo "Then set A record brodansh.de.com.eg to the CX33 IPv4 and run ssl-init.sh on the server."
+echo "Deployed Live 2 to $DEST. Live 1 DNS (${LIVE1_DOMAIN:-brodansh.de.com.eg}) was not changed."
+echo "Point a NEW record live2.brodansh.de.com.eg at the CX33 IP if you want HTTPS on Live 2."

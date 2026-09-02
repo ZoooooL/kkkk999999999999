@@ -1,90 +1,69 @@
-# Brodansh Odoo 18 — Ubuntu + Docker → Hetzner CX33
+# Brodansh — Live 1 as-is, Live 2 = 100% clone
 
-الهدف: أن يعمل **https://brodansh.de.com.eg** كما اللايف الآن 100% على **Hetzner CX33 / Ubuntu 24.04** (Falkenstein `fsn1`، وإلا Nuremberg `nbg1`).
+**Live 1 لا يُمَس:** https://brodansh.de.com.eg على AWS (`18.133.13.149`، Odoo 18.0+e). لا DNS، لا SSL، لا إعادة تشغيل، لا كتابة على القاعدة.
 
-اللايف الحالي: **Odoo 18.0 Enterprise** (`18.0+e`) خلف Nginx على **AWS London** (`18.133.13.149`).
+**Live 2** نسخة مطابقة جاهزة على Docker / Hetzner CX33 Ubuntu 24.04، على نطاق منفصل: `live2.brodansh.de.com.eg` أو IP السيرفر الجديد.
 
-مساران مدعومان (نفس النتيجة):
+السكربتات ترفض أي هدف = `brodansh.de.com.eg` أو `18.133.13.149`.
 
-1. **Docker على جهازك ثم النقل إلى CX33** (المفضّل)
-2. **إنشاء CX33 من [console.hetzner.cloud](https://console.hetzner.cloud) ثم سحب اللايف إليه**
+## كيف تصبح Live 2 = Live 1 بنسبة 100%
 
-كلاهما يحتاج: ملفات **Odoo Enterprise** + نسخة PostgreSQL + الـ filestore من السيرفر الحالي. هذه ليست في Git (ترخيص + بيانات).
+النسخة الكاملة تحتاج نسخة **قراءة فقط** من Live 1: PostgreSQL + filestore + مجلد Enterprise. لا تغيّر Live 1؛ فقط `pg_dump` و`tar`.
 
-## المسار 1 — Docker محلي ثم النقل
+**على Live 1 (قراءة فقط):**
 
 ```bash
-cp .env.example .env          # LIVE_SSH_HOST=18.133.13.149 و HETZNER_SSH=root@CX33_IP
-./scripts/up.sh               # يقلع Odoo 18 + Postgres 16
-# انسخ Enterprise من اللايف (مطلوب لـ 18.0+e):
-rsync -az ubuntu@18.133.13.149:/opt/odoo/enterprise/ ./enterprise/
-./scripts/migrate-from-live.sh
+# انسخ السكربت إلى AWS ثم:
+sudo ./scripts/export-live1-readonly.sh
+# ينتج: /tmp/brodansh-live1-readonly-XXXX.tar.gz
+```
+
+**على Live 2 (هذا Docker أو CX33):**
+
+```bash
+scp ubuntu@18.133.13.149:/tmp/brodansh-live1-readonly-*.tar.gz ./backups/
+./scripts/import-live1-dump-to-live2.sh backups/brodansh-live1-readonly-XXXX.tar.gz
 ./scripts/check-live-parity.sh
+```
+
+أو بسحب SSH للقراءة فقط (لا يعيد تشغيل أودو على AWS):
+
+```bash
+./scripts/migrate-from-live.sh
+```
+
+ثم إن أردت Hetzner:
+
+```bash
 ./scripts/pack-for-hetzner.sh --require-enterprise
 ./scripts/deploy-to-hetzner.sh root@CX33_IP
 ```
 
-على CX33 بعد التأكد من الدخول وPOS والتقارير:
+أضف سجل DNS **جديد** `live2.brodansh.de.com.eg` → IP هيتزنر. لا تغيّر سجل `brodansh.de.com.eg`.
 
-```bash
-# غيّر A record لـ brodansh.de.com.eg إلى IP هيتزنر
-./scripts/ssl-init.sh
-```
+## إنشاء سيرفر Live 2 (Hetzner CX33)
 
-## المسار 2 — Hetzner أولاً
-
-من الكونسول: Location **Falkenstein (fsn1)** أو **nbg1** · Image **Ubuntu 24.04** · Type **CX33** · IPv4+IPv6 · Backups · الاسم `brodansh-odoo`.
-
-أو:
+[console.hetzner.cloud](https://console.hetzner.cloud) → FSN1 أو NBG1 → Ubuntu 24.04 → **CX33** → الاسم **`brodansh-live2`**.
 
 ```bash
 export HCLOUD_TOKEN=...
-export HCLOUD_SSH_KEY=your-key
 ./scripts/hetzner-create-cx33.sh
 ```
 
-ثم على السيرفر:
+## تشغيل Live 2 محلياً (بدون نسخ القاعدة بعد)
 
 ```bash
-git clone <repo> /opt/odoo && cd /opt/odoo
-./scripts/install-ubuntu-docker.sh
-cp .env.example .env && vim .env
-./scripts/up.sh
-./scripts/migrate-from-live.sh
-./scripts/check-live-parity.sh
-./scripts/ssl-init.sh
-```
-
-لا تُحوّل DNS قبل نجاح `check-live-parity.sh` وتجربة المناديب والفواتير PDF.
-
-## الوحدات المخصّصة المضمّنة
-
-مجلد `addons/` يُحمَّل تلقائياً:
-
-- `brodansh_mandoub_pos` — جلسات المناديب وشاشة المطبخ
-- `brodan_partner_ledger_opening` — دفتر الأستاذ والرصيد الافتتاحي
-- `brodansh_documents` — تنظيم المستندات
-
-## تشغيل سريع للتجربة (Community)
-
-بدون Enterprise يعمل أودو 18 Community فقط — ليس نسخة اللايف.
-
-```bash
-sudo ./scripts/install-ubuntu-docker.sh
-cp .env.example .env
+cp .env.example .env   # ODOO_DOMAIN=live2.brodansh.de.com.eg
 ./scripts/up.sh
 ```
 
-## Layout
+وحدات برودانش في `addons/`: مناديب، دفتر الأستاذ، المستندات. Enterprise مرخّص ويُنسخ من Live 1 قراءة فقط.
 
-| Path | Role |
+## حماية Live 1
+
+| ممنوع | مسموح |
 | --- | --- |
-| `compose.yaml` | Odoo + Postgres; Nginx with `--profile prod` |
-| `addons/` | وحدات برودانش |
-| `enterprise/` | Odoo Enterprise (gitignored) |
-| `scripts/pack-for-hetzner.sh` | حزمة Docker محلية للنقل |
-| `scripts/deploy-to-hetzner.sh` | رفع الحزمة إلى CX33 |
-| `scripts/import-hetzner-pack.sh` | فك الحزمة على السيرفر |
-| `scripts/migrate-from-live.sh` | سحب القاعدة من AWS |
-| `scripts/check-live-parity.sh` | مقارنة الإصدار مع اللايف |
-| `scripts/hetzner-create-cx33.sh` | طلب CX33 في FSN1/NBG1 |
+| تغيير DNS لـ brodansh.de.com.eg | سجل جديد live2.brodansh.de.com.eg |
+| certbot على النطاق الأصلي | شهادة Live 2 فقط |
+| restart/upgrade على AWS | pg_dump / tar قراءة فقط |
+| rsync إلى Live 1 | rsync من Live 1 إلى Live 2 |

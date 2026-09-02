@@ -3,6 +3,7 @@ enterprise/*
 !enterprise/README.md
 config/odoo.conf.runtime
 config/odoo.prod.conf.runtime
+nginx/odoo.conf.runtime
 __pycache__/
 *.py[cod]
 .pytest_cache/

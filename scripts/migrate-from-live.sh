@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Copy PostgreSQL + filestore + Enterprise addons from the live Ubuntu host
-# into this Docker stack. Requires SSH access to the current Odoo server.
+# READ-ONLY clone of Live 1 into THIS Live-2 Docker stack.
+# Never restarts Odoo on AWS, never changes DNS for brodansh.de.com.eg.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 # shellcheck disable=SC1091
+source "$ROOT/scripts/lib/protect-live1.sh"
+# shellcheck disable=SC1091
 set -a
 source .env
 set +a
+
+forbid_touching_live1 "${ODOO_DOMAIN:-}"
 
 if [[ -z ${LIVE_SSH_HOST:-} ]]; then
   echo "Set LIVE_SSH_HOST in .env (the current Ubuntu Odoo server)." >&2
@@ -19,7 +23,7 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 STAGE="$ROOT/backups/live-$STAMP"
 mkdir -p "$STAGE" enterprise addons
 
-echo "1/4 Inspecting live server ${LIVE_SSH_USER}@${LIVE_SSH_HOST}..."
+echo "1/4 READ-ONLY inspect of Live 1 ${LIVE_SSH_USER}@${LIVE_SSH_HOST} (no writes)..."
 "${SSH[@]}" 'set -e
   echo "hostname=$(hostname)"
   echo "os=$(. /etc/os-release; echo $PRETTY_NAME)"
@@ -28,7 +32,7 @@ echo "1/4 Inspecting live server ${LIVE_SSH_USER}@${LIVE_SSH_HOST}..."
   ls -d /var/lib/odoo /opt/odoo /home/odoo 2>/dev/null || true
 '
 
-echo "2/4 Dumping live database ${LIVE_ODOO_DB}..."
+echo "2/4 READ-ONLY pg_dump of ${LIVE_ODOO_DB} (Live 1 stays online)..."
 # Prefer docker exec when the live host already runs Postgres in Docker.
 if "${SSH[@]}" 'docker ps --format "{{.Names}}" | grep -Eq "db|postgres|odoo"'; then
   DB_CONTAINER=$("${SSH[@]}" 'docker ps --format "{{.Names}}" | grep -E "db|postgres" | head -1')
@@ -53,7 +57,7 @@ if [[ -n ${LIVE_CUSTOM_ADDONS:-} ]]; then
     "$ROOT/addons/" || true
 fi
 
-echo "4/4 Restoring into Docker..."
+echo "4/4 Restoring into Live 2 Docker only..."
 python3 scripts/render-odoo-conf.py
 docker compose --env-file .env up -d db
 for _ in $(seq 1 30); do
@@ -78,6 +82,6 @@ if [[ -d $STAGE/filestore && -n $(ls -A "$STAGE/filestore" 2>/dev/null || true) 
 fi
 
 docker compose --env-file .env up -d odoo
-echo "Live restore staged from $STAGE"
-echo "Open http://127.0.0.1:${ODOO_HTTP_PORT:-8069} and confirm ${LIVE_ODOO_DB}."
-echo "Then switch DNS ${ODOO_DOMAIN} to the new server and run: ./scripts/ssl-init.sh"
+echo "Live 2 restored from $STAGE"
+echo "Live 1 (${LIVE1_DOMAIN:-brodansh.de.com.eg} / ${LIVE1_IP:-18.133.13.149}) was not modified."
+echo "Open Live 2: http://127.0.0.1:${ODOO_HTTP_PORT:-8069}"

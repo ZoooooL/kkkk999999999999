@@ -9,11 +9,16 @@ if [[ ! -f .env ]]; then
 fi
 
 # shellcheck disable=SC1091
+source "$ROOT/scripts/lib/protect-live1.sh"
+# shellcheck disable=SC1091
 set -a
 source .env
 set +a
 
+forbid_touching_live1 "${ODOO_DOMAIN:-}"
+
 python3 scripts/render-odoo-conf.py
+python3 scripts/render-nginx.py
 
 mkdir -p addons enterprise backups certs/www
 
@@ -31,7 +36,8 @@ for _ in $(seq 1 60); do
   if curl -fsS "http://127.0.0.1:${ODOO_HTTP_PORT:-8069}/web/health" >/dev/null 2>&1 \
     || curl -fsS "http://127.0.0.1:${ODOO_HTTP_PORT:-8069}/web/database/selector" >/dev/null 2>&1 \
     || curl -fsS "http://127.0.0.1:${ODOO_HTTP_PORT:-8069}/web/login" >/dev/null 2>&1; then
-    echo "Odoo is up: http://127.0.0.1:${ODOO_HTTP_PORT:-8069}"
+    echo "Odoo Live 2 is up: http://127.0.0.1:${ODOO_HTTP_PORT:-8069}"
+    echo "Live 1 (${LIVE1_DOMAIN:-brodansh.de.com.eg}) was not modified."
     exit 0
   fi
   sleep 3
