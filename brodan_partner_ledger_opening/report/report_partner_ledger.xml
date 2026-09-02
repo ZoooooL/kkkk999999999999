@@ -146,13 +146,14 @@
 
         <xpath expr="//t[@t-call='web.html_container']" position="before">
             <t t-set="pl_form" t-value="data.get('form') or {}"/>
-            <t t-set="date_from" t-value="pl_form.get('date_from')"/>
+            <t t-set="year_start" t-value="datetime.date.today().replace(month=1, day=1).isoformat()"/>
+            <t t-set="date_from" t-value="pl_form.get('date_from') or year_start"/>
             <t t-set="date_to" t-value="pl_form.get('date_to')"/>
             <t t-set="wiz_id" t-value="pl_form.get('id')"/>
             <t t-set="wiz" t-value="o.env['account.report.partner.ledger'].browse(wiz_id) if wiz_id else o.env['account.report.partner.ledger']"/>
             <t t-set="form_flag" t-value="pl_form.get('x_show_opening_balance')"/>
             <t t-set="wiz_flag" t-value="wiz.x_show_opening_balance if wiz_id and wiz.exists() else None"/>
-            <t t-set="show_opening" t-value="bool(date_from) and (bool(form_flag) if form_flag is not None else bool(wiz_flag))"/>
+            <t t-set="show_opening" t-value="bool(form_flag) if form_flag is not None else (bool(wiz_flag) if wiz_flag is not None else True)"/>
             <t t-set="account_types" t-value="['liability_payable'] if pl_form.get('result_selection') == 'supplier' else (['asset_receivable'] if pl_form.get('result_selection') == 'customer' else ['asset_receivable', 'liability_payable'])"/>
             <t t-set="move_states" t-value="['posted'] if pl_form.get('target_move') == 'posted' else ['draft', 'posted']"/>
             <t t-set="pl_company_id" t-value="(pl_form.get('used_context') or {}).get('company_id') or (pl_form.get('company_id')[0] if pl_form.get('company_id') else o.env.company.id)"/>

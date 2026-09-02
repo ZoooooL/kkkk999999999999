@@ -1,7 +1,7 @@
 {
     "name": "Brodan Partner Ledger Opening",
-    "summary": "الرصيد الافتتاحي والتصنيف وصفحة لكل عميل في دفتر الأستاذ للشركاء",
-    "version": "18.0.1.9.0",
+    "summary": "تاريخ بداية العام والرصيد الافتتاحي وحقل الشركة في دفتر الأستاذ للشركاء",
+    "version": "18.0.1.10.0",
     "category": "Accounting/Accounting",
     "author": "Zool Solutions",
     "license": "LGPL-3",

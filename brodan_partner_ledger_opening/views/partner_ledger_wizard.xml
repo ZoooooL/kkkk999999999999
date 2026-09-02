@@ -28,13 +28,20 @@
         <field name="store" eval="True"/>
     </record>
 
+    <record id="default_partner_ledger_show_opening" model="ir.default">
+        <field name="field_id" ref="field_account_report_partner_ledger_x_show_opening_balance"/>
+        <field name="json_value">true</field>
+    </record>
+
     <record id="accounting_pdf_reports_account_report_partner_ledger_view" model="ir.ui.view">
         <field name="name">account.report.partner.ledger.form.opening.balance</field>
         <field name="model">account.report.partner.ledger</field>
         <field name="inherit_id" ref="accounting_pdf_reports.account_report_partner_ledger_view"/>
         <field name="arch" type="xml">
             <data>
+                <field name="company_id" position="replace"/>
                 <field name="date_from" position="before">
+                    <field name="company_id" string="الشركة" readonly="0" options="{'no_create': True}"/>
                     <field name="x_show_opening_balance"/>
                 </field>
                 <field name="partner_ids" position="before">

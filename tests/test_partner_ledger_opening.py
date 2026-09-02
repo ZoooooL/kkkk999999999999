@@ -11,15 +11,24 @@ sys.path.insert(0, str(sys_path))
 
 from opening import (  # noqa: E402
     CLOSING_LABEL,
+    COMPANY_LABEL,
     OPENING_LABEL,
+    SHOW_OPENING_BALANCE,
+    YEAR_START_DAY,
+    YEAR_START_MONTH,
     account_types_for_selection,
     adjust_line_progress,
     company_id_from_form,
+    effective_date_from,
+    effective_date_from_iso,
     footer_totals,
     move_states_for_target,
     opening_domain,
     opening_from_group,
     should_show_opening,
+    wizard_create_defaults,
+    year_start_date,
+    year_start_iso,
 )
 
 MODULE = ROOT / "brodan_partner_ledger_opening"
@@ -79,7 +88,9 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
         form = {"date_from": "2026-01-01"}
         self.assertTrue(should_show_opening(form, wizard_flag=True))
         self.assertFalse(should_show_opening(form, wizard_flag=False))
-        self.assertFalse(should_show_opening({"date_from": False}, wizard_flag=True))
+        self.assertTrue(should_show_opening({"date_from": False}, wizard_flag=True))
+        self.assertTrue(should_show_opening({}))
+        self.assertTrue(SHOW_OPENING_BALANCE)
         self.assertTrue(
             should_show_opening(
                 {"date_from": "2026-01-01", "x_show_opening_balance": True},
@@ -125,6 +136,8 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
         self.assertIn(OPENING_LABEL, arch)
         self.assertIn(CLOSING_LABEL, arch)
         self.assertIn("x_show_opening_balance", arch)
+        self.assertIn("year_start", arch)
+        self.assertIn("datetime.date.today().replace(month=1, day=1)", arch)
         self.assertIn("('date', '&lt;', date_from)", arch)
         self.assertIn("account.move.line", arch)
         self.assertIn("read_group", arch)
@@ -138,6 +151,36 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
         arch = (MODULE / "views" / "partner_ledger_wizard.xml").read_text(encoding="utf-8")
         self.assertIn('name="x_show_opening_balance"', arch)
         self.assertIn("date_from", arch)
+
+    def test_wizard_view_has_company_field(self):
+        xml = (MODULE / "views" / "partner_ledger_wizard.xml").read_text(encoding="utf-8")
+        self.assertIn('name="company_id"', xml)
+        self.assertIn(COMPANY_LABEL, xml)
+        self.assertIn('readonly="0"', xml)
+        self.assertIn("default_partner_ledger_show_opening", xml)
+        self.assertIn("<field name=\"json_value\">true</field>", xml)
+
+    def test_year_start_constant(self):
+        from datetime import date
+
+        self.assertEqual(YEAR_START_MONTH, 1)
+        self.assertEqual(YEAR_START_DAY, 1)
+        self.assertEqual(year_start_date(date(2026, 9, 2)), date(2026, 1, 1))
+        self.assertEqual(year_start_iso(date(2025, 12, 31)), "2025-01-01")
+        self.assertEqual(effective_date_from_iso({"date_from": False}, today=date(2026, 3, 15)), "2026-01-01")
+        self.assertEqual(effective_date_from_iso({"date_from": "2026-04-01"}), "2026-04-01")
+        self.assertEqual(effective_date_from({}, today=date(2026, 9, 2)), date(2026, 1, 1))
+
+    def test_wizard_create_defaults(self):
+        from datetime import date
+
+        defaults = wizard_create_defaults(today=date(2026, 9, 2))
+        self.assertEqual(defaults["date_from"], date(2026, 1, 1))
+        self.assertTrue(defaults["x_show_opening_balance"])
+        self.assertEqual(
+            wizard_create_defaults(date_from="2026-04-01", show_opening=False),
+            {},
+        )
 
     def test_wizard_view_has_tags_field(self):
         arch = (MODULE / "views" / "partner_ledger_wizard.xml").read_text(encoding="utf-8")
@@ -182,6 +225,23 @@ class PartnerLedgerOpeningTests(unittest.TestCase):
         self.assertEqual(net_side_amounts(3307.82), (3307.82, 0.0))
         self.assertEqual(net_side_amounts(-150.5), (0.0, 150.5))
         self.assertEqual(net_side_amounts(0), (0.0, 0.0))
+
+    def test_python_wizard_declares_year_company_opening(self):
+        source = (MODULE / "models" / "account_partner_ledger.py").read_text(encoding="utf-8")
+        self.assertIn("company_id = fields.Many2one", source)
+        self.assertIn("readonly=False", source)
+        self.assertIn("year_start_date()", source)
+        self.assertIn("SHOW_OPENING_BALANCE", source)
+        self.assertIn("default_get", source)
+
+    def test_install_script_sets_year_start_and_company(self):
+        source = (ROOT / "scripts" / "install_partner_ledger_opening.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("date.today().replace(month=1, day=1)", source)
+        self.assertIn("vals['x_show_opening_balance'] = True", source)
+        self.assertIn("vals['company_id'] = env.company.id", source)
+        self.assertIn("ensure_opening_default", source)
 
 
 if __name__ == "__main__":

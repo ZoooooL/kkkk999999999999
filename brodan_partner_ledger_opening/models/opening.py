@@ -6,9 +6,63 @@ The QWeb template mirrors these rules with `o.env` queries. Keep both in sync.
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 
 OPENING_LABEL = "الرصيد الافتتاحي"
 CLOSING_LABEL = "الرصيد النهائي"
+COMPANY_LABEL = "الشركة"
+
+# Wizard constants: start of the current calendar year, opening always on.
+YEAR_START_MONTH = 1
+YEAR_START_DAY = 1
+SHOW_OPENING_BALANCE = True
+
+
+def _as_date(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text or text in ("False", "None"):
+        return None
+    return date.fromisoformat(text[:10])
+
+
+def year_start_date(today=None):
+    """First day of the current calendar year (تاريخ بداية العام)."""
+    today = _as_date(today) or date.today()
+    return date(today.year, YEAR_START_MONTH, YEAR_START_DAY)
+
+
+def year_start_iso(today=None):
+    return year_start_date(today).isoformat()
+
+
+def effective_date_from(form, today=None):
+    """Use the wizard start date, otherwise the year-start constant."""
+    return _as_date((form or {}).get("date_from")) or year_start_date(today)
+
+
+def effective_date_from_iso(form, today=None):
+    value = (form or {}).get("date_from")
+    parsed = _as_date(value)
+    if parsed:
+        return parsed.isoformat()
+    return year_start_iso(today)
+
+
+def wizard_create_defaults(date_from=None, show_opening=None, today=None):
+    """Defaults applied when the partner-ledger wizard is opened."""
+    vals = {}
+    if not _as_date(date_from):
+        vals["date_from"] = year_start_date(today)
+    if show_opening is None:
+        vals["x_show_opening_balance"] = SHOW_OPENING_BALANCE
+    return vals
 
 
 def account_types_for_selection(result_selection):
@@ -72,14 +126,13 @@ def opening_from_group(group_rows):
 
 
 def should_show_opening(form, wizard_flag=None):
-    """Use form data when present; otherwise the wizard checkbox."""
-    if not (form or {}).get("date_from"):
-        return False
+    """Use form data when present; otherwise the opening-balance constant."""
+    form = form or {}
     if form.get("x_show_opening_balance") is not None:
         return bool(form.get("x_show_opening_balance"))
     if wizard_flag is not None:
         return bool(wizard_flag)
-    return False
+    return SHOW_OPENING_BALANCE
 
 
 def adjust_line_progress(period_lines, opening_balance):

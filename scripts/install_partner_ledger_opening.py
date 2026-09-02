@@ -23,11 +23,20 @@ REPORT_XML = MODULE_DIR / "report" / "report_partner_ledger.xml"
 TAG_FIELD_NAME = "x_partner_category_ids"
 TAG_REL_TABLE = "x_account_report_pl_category_rel"
 TAG_AUTOMATION_NAME = "دفتر الشركاء: تعبئة الشركاء من علامات التصنيف"
+OPENING_FIELD_NAME = "x_show_opening_balance"
 TAG_FILL_CODE = """
 if env.context.get('brodan_pl_skip_tag_fill'):
     pass
 else:
-    tags = record.x_partner_category_ids
+    from datetime import date
+    vals = {}
+    if not record.date_from:
+        vals['date_from'] = date.today().replace(month=1, day=1)
+    if 'x_show_opening_balance' in record._fields and not record._origin:
+        vals['x_show_opening_balance'] = True
+    if 'company_id' in record._fields and not record.company_id:
+        vals['company_id'] = env.company.id
+    tags = record.x_partner_category_ids if 'x_partner_category_ids' in record._fields else False
     if tags:
         tagged = env['res.partner'].search([('category_id', 'in', tags.ids)])
         if record.partner_ids:
@@ -36,7 +45,9 @@ else:
             keep_ids = tagged.ids
         current_ids = record.partner_ids.ids
         if sorted(keep_ids) != sorted(current_ids):
-            record.with_context(brodan_pl_skip_tag_fill=True).write({'partner_ids': [(6, 0, keep_ids)]})
+            vals['partner_ids'] = [(6, 0, keep_ids)]
+    if vals:
+        record.with_context(brodan_pl_skip_tag_fill=True).write(vals)
 """
 
 
@@ -184,6 +195,36 @@ def ensure_category_field(execute) -> int:
     return field_id
 
 
+def ensure_opening_default(execute) -> int | None:
+    field_ids = execute(
+        "ir.model.fields",
+        "search",
+        [["model", "=", "account.report.partner.ledger"], ["name", "=", OPENING_FIELD_NAME]],
+        limit=1,
+    )
+    if not field_ids:
+        return None
+    found = execute(
+        "ir.default",
+        "search",
+        [["field_id", "=", field_ids[0]], ["user_id", "=", False], ["company_id", "=", False]],
+        limit=1,
+    )
+    values = {"field_id": field_ids[0], "json_value": "true"}
+    if found:
+        execute("ir.default", "write", found, values)
+        default_id = found[0]
+    else:
+        default_id = execute("ir.default", "create", values)
+    upsert_xmlid(
+        execute,
+        MODULE + ".default_partner_ledger_show_opening",
+        "ir.default",
+        default_id,
+    )
+    return default_id
+
+
 def ensure_tag_automation(execute) -> dict:
     model_ids = execute(
         "ir.model",
@@ -260,6 +301,7 @@ def upsert_view(execute, xmlid: str, values: dict) -> int:
 
 def apply_views(execute) -> dict:
     field_id = ensure_category_field(execute)
+    opening_default = ensure_opening_default(execute)
     automation = ensure_tag_automation(execute)
     partner_view = execute(
         "ir.model.data",
@@ -347,6 +389,7 @@ def apply_views(execute) -> dict:
         "styles": styles_id,
         "table": table_id,
         "tag_field": field_id,
+        "opening_default": opening_default,
         **automation,
     }
 
