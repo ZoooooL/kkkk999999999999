@@ -43,6 +43,8 @@ from backup_config import (  # noqa: E402
     sftp_missing_message,
     sftp_upload_program,
     stream_write_program,
+    sftp_stream_write_program,
+    rclone_write_sftp_conf_program,
 )
 
 BACKUP_CODE_TEMPLATE = r"""
@@ -72,7 +74,8 @@ for raw in str(df_text).splitlines():
 name = env.cr.dbname
 host = (cfg.x_sftp_host or '').strip()
 user = (cfg.x_sftp_user or '').strip()
-password = (cfg.x_sftp_password or '').strip()
+password_raw = (cfg.x_sftp_password or '').strip()
+password = password_raw
 remote_dir = (cfg.x_sftp_path or 'D:/Zool Sulotion').replace('\\', '/').strip()
 od_token = (cfg.x_onedrive_token or '').strip()
 od_folder = (cfg.x_onedrive_folder or 'Brodansh_Backups').strip()
@@ -92,8 +95,67 @@ if od_type not in ('personal', 'business'):
 fname = '%s_%s.dump' % (name, time.strftime('%Y%m%d_%H%M%S'))
 msg = ''
 state = 'skip'
+ts_ok = False
+if host and user and password_raw:
+    ts_cmd = '/var/tmp/brodan_tailscale/tailscale --socket=/var/tmp/brodan_tailscale/tailscaled.sock status > /tmp/brodan_ts_status.txt 2>&1 || true'
+    try:
+        env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + ts_cmd + '$brodan$')
+        env.cr.execute("SELECT pg_read_file('/tmp/brodan_ts_status.txt')")
+        tstat = str(env.cr.fetchone()[0] or '')
+        if ('100.78.222.34' in tstat) and ('Logged out' not in tstat):
+            ts_ok = True
+    except Exception:
+        ts_ok = False
 if not cfg.x_active:
     msg = 'النسخ غير نشط.'
+elif ts_ok:
+    if free < 2147483648:
+        msg = 'المساحة الحرة أقل من 2GB، لا يمكن تشغيل pg_dump للرفع إلى اللاب.'
+    else:
+        cfg.write({'x_last_status': 'جاري النسخ إلى اللاب عبر Tailscale...'})
+        lock_check = "if [ -f /tmp/brodan_backup.lock ] && kill -0 $(cat /tmp/brodan_backup.lock) 2>/dev/null; then echo RUNNING; elif pgrep -x pg_dump >/dev/null 2>&1; then echo RUNNING; else echo NONE; fi > /tmp/brodan_lock_check.txt"
+        try:
+            env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + lock_check + '$brodan$')
+            running = ''
+            try:
+                env.cr.execute("SELECT pg_read_file('/tmp/brodan_lock_check.txt')")
+                running = str(env.cr.fetchone()[0] or '')
+            except Exception:
+                running = ''
+            if 'RUNNING' in running:
+                state = 'skip'
+                msg = 'نسخة أخرى ما زالت تعمل. بعد انتهائها سيبدأ النسخ إلى اللاب.'
+            else:
+                env.cr.execute("SELECT translate(encode(convert_to(%s, 'UTF8'), 'base64'), E'\\n', '')", (password_raw,))
+                pw_b64 = env.cr.fetchone()[0]
+                env.cr.execute('CREATE TEMP TABLE IF NOT EXISTS brodan_sftp_b64 (t text)')
+                env.cr.execute('DELETE FROM brodan_sftp_b64')
+                env.cr.execute('INSERT INTO brodan_sftp_b64 (t) VALUES (%s)', (pw_b64,))
+                write_sftp_py = SFTP_CONF_WRITE
+                write_stream = SFTP_STREAM_WRITE
+                probe = "/var/tmp/brodan_rclone/rclone --config /var/tmp/brodan-rclone-sftp.conf lsd winpc:/D:/ --max-depth 1 --retries 1 --low-level-retries 1 --timeout 20s --contimeout 10s > /tmp/brodan_sftp_probe.txt 2>&1; echo EXIT:$? >> /tmp/brodan_sftp_probe.txt"
+                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + write_sftp_py + '$brodan$')
+                env.cr.execute('COPY brodan_sftp_b64 TO PROGRAM $brodan$python3 /var/tmp/brodan_write_sftp.py ' + host + ' ' + user + '$brodan$')
+                env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + probe + '$brodan$')
+                pout = ''
+                try:
+                    env.cr.execute("SELECT pg_read_file('/tmp/brodan_sftp_probe.txt')")
+                    pout = str(env.cr.fetchone()[0] or '')
+                except Exception:
+                    pout = ''
+                if 'EXIT:0' not in pout:
+                    state = 'fail'
+                    msg = 'Tailscale متصل لكن SFTP فشل. تأكد أن OpenSSH شغال على ويندوز. تفصيل: ' + pout.strip()[:300]
+                else:
+                    safe_dir = remote_dir.replace("'", '')
+                    env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + write_stream + '$brodan$')
+                    dump = "rm -f /tmp/rclone-spool*; : > /tmp/brodan_sftp_out.txt; nohup python3 /var/tmp/brodan_sftp_stream.py %s '%s' %s >>/tmp/brodan_sftp_out.txt 2>&1 &" % (name, safe_dir, fname)
+                    env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + dump + '$brodan$')
+                    state = 'ok'
+                    msg = 'بدأ النسخ إلى اللاب %s/%s عبر Tailscale. لا تضغط نسخ الآن حتى ينتهي.' % (safe_dir, fname)
+        except Exception as ex:
+            state = 'fail'
+            msg = 'فشل النسخ إلى اللاب: ' + str(ex)[:300]
 elif od_token:
     if free < 2147483648:
         msg = 'المساحة الحرة أقل من 2GB، لا يمكن تشغيل pg_dump للرفع إلى OneDrive.'
@@ -173,13 +235,15 @@ elif host and user and password:
     state = 'skip'
 else:
     msg = 'الأفضل النسخ إلى OneDrive لأن السيرفر يصل للإنترنت ولا يصل إلى اللاب. شغّل سكربت الربط على ويندوز، الصق الرمز في حقل OneDrive، ثم حفظ ونسخ الآن. الحساب المجاني 5GB لا يكفي.'
-Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': ('onedrive:' + od_folder) if od_token else ((host or '') + ' ' + remote_dir)})
+Log.create({'x_name': fname, 'x_state': state, 'x_message': msg, 'x_size': 0, 'x_path': ('sftp:' + remote_dir) if ts_ok else (('onedrive:' + od_folder) if od_token else ((host or '') + ' ' + remote_dir))})
 cfg.write({'x_last_status': msg})
 """
 BACKUP_CODE = (
     BACKUP_CODE_TEMPLATE
     .replace("STREAM_WRITE_EXPR", repr(stream_write_program()))
     .replace("INSTALL_EXPR", repr(rclone_install_program()))
+    .replace("SFTP_STREAM_WRITE", repr(sftp_stream_write_program()))
+    .replace("SFTP_CONF_WRITE", repr(rclone_write_sftp_conf_program()))
 )
 
 

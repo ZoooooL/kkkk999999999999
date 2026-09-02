@@ -340,6 +340,60 @@ cleanup()
 sys.exit(1)
 '''
 
+SFTP_STREAM_SCRIPT = (
+    ONEDRIVE_STREAM_SCRIPT.replace(
+        'CONF = "/var/tmp/brodan-rclone.conf"',
+        'CONF = "/var/tmp/brodan-rclone-sftp.conf"',
+    )
+    .replace(
+        'LOG = "/tmp/brodan_od_out.txt"',
+        'LOG = "/tmp/brodan_sftp_out.txt"',
+    )
+    .replace(
+        '[RCLONE, "--config", CONF, "mkdir", "--onedrive-drive-type", "personal", "onedrive:" + FOLDER]',
+        '[RCLONE, "--config", CONF, "mkdir", "--sftp-known-hosts-file", "none", "winpc:" + FOLDER]',
+    )
+    .replace(
+        '"--onedrive-drive-type", "personal", "--onedrive-chunk-size", "10M", "--retries", "3"',
+        '"--sftp-socks-proxy", "127.0.0.1:1055", "--sftp-known-hosts-file", "none", "--retries", "3"',
+    )
+    .replace(
+        '"onedrive:%s/%s" % (FOLDER, FNAME)',
+        '"winpc:%s/%s" % (FOLDER, FNAME)',
+    )
+    .replace("to onedrive:%s/%s", "to sftp:%s/%s")
+    .replace("OK uploaded onedrive:", "OK uploaded sftp:")
+)
+
+
+def sftp_stream_write_program():
+    """Shell that writes the two-pass SFTP uploader onto the Odoo host."""
+    import base64
+
+    b64 = base64.b64encode(SFTP_STREAM_SCRIPT.encode("utf-8")).decode("ascii")
+    inner = (
+        "import base64,os; open('/var/tmp/brodan_sftp_stream.py','wb').write("
+        "base64.b64decode('%s')); os.chmod('/var/tmp/brodan_sftp_stream.py', 0o755)"
+    ) % b64
+    return "python3 -c %s" % json.dumps(inner)
+
+
+def rclone_write_sftp_conf_program():
+    """Install a stdin base64 password writer for the Tailscale SFTP remote."""
+    return (
+        "cat > /var/tmp/brodan_write_sftp.py << 'BRDSFTP'\n"
+        "import sys, base64, os, subprocess\n"
+        "raw = sys.stdin.read().strip().replace(chr(10), '').replace(chr(13), '')\n"
+        "pw = base64.b64decode(raw).decode()\n"
+        "host = sys.argv[1] if len(sys.argv) > 1 else '100.78.222.34'\n"
+        "user = sys.argv[2] if len(sys.argv) > 2 else 'lenovo'\n"
+        "obsc = subprocess.check_output(['/var/tmp/brodan_rclone/rclone', 'obscure', pw], text=True).strip()\n"
+        "lines = ['[winpc]', 'type = sftp', 'host = ' + host, 'user = ' + user, 'pass = ' + obsc, 'port = 22', 'socks_proxy = 127.0.0.1:1055', 'known_hosts_file = none', 'shell_type = unix']\n"
+        "open('/var/tmp/brodan-rclone-sftp.conf', 'w').write(chr(10).join(lines) + chr(10))\n"
+        "os.chmod('/var/tmp/brodan-rclone-sftp.conf', 0o600)\n"
+        "BRDSFTP"
+    )
+
 
 def stream_write_program():
     """Shell that writes the two-pass OneDrive uploader onto the Odoo host."""
