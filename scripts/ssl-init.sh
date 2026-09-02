@@ -41,4 +41,4 @@ docker compose --env-file .env --profile prod run --rm --entrypoint certbot cert
 
 docker compose --env-file .env --profile prod up -d nginx
 echo "TLS is active for Live 2: https://${ODOO_DOMAIN}"
-echo "Live 1 (${LIVE1_DOMAIN:-brodansh.de.com.eg}) was not changed."
+echo "Live 1 (${LIVE1_DOMAIN:-brodansh.de.com.eg}) and the shop (zouljanaheen.com) were not changed."

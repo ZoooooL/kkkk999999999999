@@ -2,7 +2,7 @@
 
 **Live 1 لا يُمَس:** https://brodansh.de.com.eg على AWS (`18.133.13.149`، Odoo 18.0+e). لا DNS، لا SSL، لا إعادة تشغيل، لا كتابة، ولا SSH من هذا المستودع إلا إذا فعّلت ذلك بنفسك.
 
-**Live 2** ستاك Docker منفصل (محلي أو Hetzner CX33 Ubuntu 24.04). السكربتات ترفض `brodansh.de.com.eg` و`18.133.13.149` و`3.8.46.165`.
+**Live 2** ستاك Docker منفصل (محلي أو Hetzner CX33 Ubuntu 24.04) على **`odoo.zouljanaheen.com`**. السكربتات ترفض `brodansh.de.com.eg` ومتجر `zouljanaheen.com` وIPs الخاصة بهما.
 
 ## ماذا يطابق Live 1؟
 
@@ -11,9 +11,9 @@
 | الإصدار | 18.0+e | 18.0+e بعد وضع `enterprise/` |
 | القواعد | `brodan`, `brodan2026`, `brodansh`, `test` | نفس الأسماء بعد الاستيراد |
 | اختيار القاعدة | `list_db=True` علني | نفس الإعداد |
-| النطاق | `brodansh.de.com.eg` | IP السيرفر الجديد أو نطاق **جديد** |
+| النطاق | `brodansh.de.com.eg` | **`odoo.zouljanaheen.com`** (سجل A جديد فقط) |
 
-`live2.brodansh.de.com.eg` يشير حالياً إلى سيرفر AWS آخر (`3.8.46.165`، قاعدة `clo`). لن نغيّر هذا السجل.
+متجر **https://zouljanaheen.com** (Bagisto) يبقى كما هو. Live 2 تستخدم النطاق الفرعي `odoo.zouljanaheen.com` — لا نغيّر سجل الـ apex ولا `brodansh.de.com.eg` ولا `live2.brodansh.de.com.eg`.
 
 ## Live 2 جاهزة — النسخة 100% تحتاج ملف التصدير فقط
 
@@ -49,13 +49,12 @@ cp .env.example .env
 
 [console.hetzner.cloud](https://console.hetzner.cloud) → FSN1 أو NBG1 → Ubuntu 24.04 → **CX33** → الاسم **`brodansh-live2`**.
 
-أضف سجل DNS **جديد** إلى IP هيتزنر. لا تغيّر `brodansh.de.com.eg`.
+أضف سجل DNS **جديد**: `odoo.zouljanaheen.com` → IP هيتزنر. لا تغيّر `brodansh.de.com.eg` ولا `zouljanaheen.com`.
 
 ## حماية Live 1
 
 | ممنوع | مسموح |
 | --- | --- |
-| تغيير DNS لـ brodansh.de.com.eg | سجل جديد لسيرفر Live 2 |
-| certbot على النطاق الأصلي | شهادة لنطاق Live 2 فقط بعد أن يشير DNS إليه |
-| restart/upgrade على AWS | pg_dump / tar قراءة فقط على AWS ثم استيراد هنا |
-| rsync/scp إلى Live 1 | نسخ ملف التصدير إلى مجلد `backups/` |
+| تغيير DNS لـ brodansh.de.com.eg | سجل جديد `odoo.zouljanaheen.com` |
+| تغيير DNS لمتجر zouljanaheen.com | شهادة Let's Encrypt لـ odoo.zouljanaheen.com بعد أن يشير إليه DNS |
+| certbot على النطاق الأصلي أو المتجر | قراءة فقط: pg_dump / tar على AWS ثم استيراد هنا |

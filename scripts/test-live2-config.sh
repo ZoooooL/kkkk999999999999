@@ -23,8 +23,16 @@ check() {
 check "$ROOT/config/odoo.conf"
 check "$ROOT/config/odoo.prod.conf"
 
-if ! grep -q 'X-XSS-Protection' "$ROOT/nginx/odoo.conf"; then
-  echo "FAIL: nginx must send X-XSS-Protection like Live 1"
+if grep -q 'live2.brodansh.de.com.eg' "$ROOT/nginx/odoo.conf"; then
+  echo "FAIL: nginx template still has the old Live 2 hostname"
+  fail=1
+fi
+if ! grep -q '__ODOO_DOMAIN__' "$ROOT/nginx/odoo.conf"; then
+  echo "FAIL: nginx template must use __ODOO_DOMAIN__ placeholder"
+  fail=1
+fi
+if ! grep -q '^ODOO_DOMAIN=odoo.zouljanaheen.com$' "$ROOT/.env.example"; then
+  echo "FAIL: Live 2 domain must be odoo.zouljanaheen.com"
   fail=1
 fi
 

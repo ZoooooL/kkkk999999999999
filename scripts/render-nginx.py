@@ -8,6 +8,14 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / ".env"
 TEMPLATE = ROOT / "nginx" / "odoo.conf"
 OUT = ROOT / "nginx" / "odoo.conf.runtime"
+PLACEHOLDER = "__ODOO_DOMAIN__"
+DEFAULT_DOMAIN = "odoo.zouljanaheen.com"
+FORBIDDEN = {
+    "brodansh.de.com.eg",
+    "www.brodansh.de.com.eg",
+    "zouljanaheen.com",
+    "www.zouljanaheen.com",
+}
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -25,14 +33,16 @@ def load_env(path: Path) -> dict[str, str]:
 
 def main() -> None:
     env = load_env(ENV_PATH)
-    domain = env.get("ODOO_DOMAIN", "live2.brodansh.de.com.eg")
-    if domain in {"brodansh.de.com.eg", "www.brodansh.de.com.eg"}:
+    domain = env.get("ODOO_DOMAIN", DEFAULT_DOMAIN).strip().lower()
+    if domain in FORBIDDEN:
         raise SystemExit(
-            "Refusing to render nginx for Live 1. Set ODOO_DOMAIN=live2.brodansh.de.com.eg"
+            f"Refusing to render nginx for protected site {domain}. "
+            f"Set ODOO_DOMAIN={DEFAULT_DOMAIN}"
         )
     text = TEMPLATE.read_text(encoding="utf-8")
-    text = text.replace("live2.brodansh.de.com.eg", domain)
-    OUT.write_text(text, encoding="utf-8")
+    if PLACEHOLDER not in text:
+        raise SystemExit(f"{TEMPLATE} missing {PLACEHOLDER}")
+    OUT.write_text(text.replace(PLACEHOLDER, domain), encoding="utf-8")
     print(f"Wrote nginx for {domain}")
 
 

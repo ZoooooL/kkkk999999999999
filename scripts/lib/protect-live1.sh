@@ -1,11 +1,13 @@
-# Shared Live-1 protection. Source from other scripts.
+# Shared Live-1 / shop protection. Source from other scripts.
 # Live 1 = https://brodansh.de.com.eg on AWS 18.133.13.149 — never write to it.
-# 3.8.46.165 is a separate existing AWS Odoo (db "clo"); do not overwrite it either.
+# 3.8.46.165 is a separate existing AWS Odoo (db "clo"); do not overwrite it.
+# zouljanaheen.com is the existing Bagisto shop on 46.101.110.51 — never overwrite it.
+# Live 2 public hostname is odoo.zouljanaheen.com (new A record only).
 
 LIVE1_DOMAIN=${LIVE1_DOMAIN:-brodansh.de.com.eg}
 LIVE1_IP=${LIVE1_IP:-18.133.13.149}
-PROTECTED_IPS=${PROTECTED_IPS:-18.133.13.149,3.8.46.165}
-PROTECTED_DOMAINS=${PROTECTED_DOMAINS:-brodansh.de.com.eg,www.brodansh.de.com.eg}
+PROTECTED_IPS=${PROTECTED_IPS:-18.133.13.149,3.8.46.165,46.101.110.51}
+PROTECTED_DOMAINS=${PROTECTED_DOMAINS:-brodansh.de.com.eg,www.brodansh.de.com.eg,zouljanaheen.com,www.zouljanaheen.com}
 
 _protect_haystack() {
   printf '%s' "$1" | tr 'A-Z' 'a-z'
@@ -38,7 +40,7 @@ forbid_touching_live1() {
     [[ -z $domain ]] && continue
     if [[ $lower == "$domain" || $lower == *"://$domain"* || $lower == *"@$domain"* ]]; then
       echo "Refusing: this would touch Live 1 (${LIVE1_DOMAIN} / ${LIVE1_IP})." >&2
-      echo "Live 1 stays as-is. Use Live 2 only (a new Hetzner CX33 IP, never ${LIVE1_DOMAIN})." >&2
+      echo "Live 1 and the shop stay as-is. Use Live 2 only (odoo.zouljanaheen.com on a NEW host)." >&2
       exit 1
     fi
   done

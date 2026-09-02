@@ -39,7 +39,7 @@ Then:
   ssh root@SERVER_IP
   git clone <this-repo> /opt/odoo && cd /opt/odoo
   ./scripts/install-ubuntu-docker.sh
-  cp .env.example .env && vim .env   # keep ODOO_DOMAIN=live2.brodansh.de.com.eg
+  cp .env.example .env && vim .env   # keep ODOO_DOMAIN=odoo.zouljanaheen.com
   ./scripts/up.sh
   # clone data with a READ-ONLY dump from Live 1, never switch Live 1 DNS
 EOF

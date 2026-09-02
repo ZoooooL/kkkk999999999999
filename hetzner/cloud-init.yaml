@@ -1,6 +1,6 @@
 #cloud-config
 hostname: brodansh-live2
-fqdn: live2.brodansh.de.com.eg
+fqdn: odoo.zouljanaheen.com
 manage_etc_hosts: true
 package_update: true
 package_upgrade: true
