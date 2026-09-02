@@ -14,6 +14,15 @@ LOG_MODEL = "x_brodan_backup_log"
 MENU_NAME = "النسخ الاحتياطي"
 CRON_NAME = "BRODAN: نسخة احتياطية يومية"
 SERVER_ACTION_NAME = "BRODAN: تشغيل النسخة الاحتياطية"
+BACKUP_OWNER_LOGIN = "whmm2299@hotmail.com"
+BACKUP_OWNER_UID = 2
+BACKUP_GROUP_NAME = "Brodansh Backup Owner"
+BACKUP_GROUP_XMLID = "group_backup_owner"
+LEFTOVER_BACKUP_ACTION_NAMES = (
+    "BRODAN: onedrive meta",
+    "BRODAN: run ts check",
+    "BRODAN: stop od dump",
+)
 DEFAULT_FOLDER = "/var/tmp/brodan_backups"
 DEFAULT_SFTP_PATH = "/D:/Zool Sulotion"
 DEFAULT_SFTP_HOST = "100.78.222.34"

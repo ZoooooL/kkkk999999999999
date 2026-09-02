@@ -22,6 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "brodan_backup" / "models"))
 
 from backup_config import (  # noqa: E402
+    BACKUP_GROUP_NAME,
+    BACKUP_GROUP_XMLID,
+    BACKUP_OWNER_LOGIN,
+    BACKUP_OWNER_UID,
     CONFIG_MODEL,
     CRON_NAME,
     DEFAULT_FOLDER,
@@ -30,6 +34,7 @@ from backup_config import (  # noqa: E402
     DEFAULT_SFTP_HOST,
     DEFAULT_SFTP_PATH,
     DEFAULT_SFTP_USER,
+    LEFTOVER_BACKUP_ACTION_NAMES,
     LOG_MODEL,
     MENU_NAME,
     SERVER_ACTION_NAME,
@@ -302,26 +307,139 @@ def ensure_field(odoo: Odoo, model_id: int, model: str, name: str, ttype: str, *
     return odoo.execute("ir.model.fields", "create", payload)
 
 
-def ensure_access(odoo: Odoo, model_id: int, name: str) -> None:
+def ensure_access(odoo: Odoo, model_id: int, name: str, group_id: int | None = None) -> None:
+    if group_id is None:
+        system = odoo.execute("ir.model.data", "search_read", [("module", "=", "base"), ("name", "=", "group_system")], ["res_id"], limit=1)
+        group_id = system[0]["res_id"] if system else 4
     found = odoo.execute("ir.model.access", "search", [("name", "=", name)], limit=1)
+    vals = {
+        "name": name,
+        "model_id": model_id,
+        "group_id": group_id,
+        "perm_read": True,
+        "perm_write": True,
+        "perm_create": True,
+        "perm_unlink": True,
+    }
     if found:
+        odoo.execute("ir.model.access", "write", found, {"group_id": group_id})
         return
-    group = odoo.execute("res.groups", "search", [("id", "=", 4)], limit=1)  # fallback
-    system = odoo.execute("ir.model.data", "search_read", [("module", "=", "base"), ("name", "=", "group_system")], ["res_id"], limit=1)
-    group_id = system[0]["res_id"] if system else (group[0] if group else False)
+    odoo.execute("ir.model.access", "create", vals)
+
+
+def ensure_backup_owner_group(odoo: Odoo) -> int:
+    """Private group assigned only to the Brodansh owner login."""
+    users = odoo.execute(
+        "res.users",
+        "search",
+        [("login", "=", BACKUP_OWNER_LOGIN), ("active", "=", True)],
+        limit=1,
+    )
+    owner_id = users[0] if users else BACKUP_OWNER_UID
+    data = odoo.execute(
+        "ir.model.data",
+        "search_read",
+        [("module", "=", "brodan_backup"), ("name", "=", BACKUP_GROUP_XMLID)],
+        ["res_id"],
+        limit=1,
+    )
+    vals = {"name": BACKUP_GROUP_NAME, "users": [(6, 0, [owner_id])]}
+    if data:
+        gid = data[0]["res_id"]
+        odoo.execute("res.groups", "write", [gid], vals)
+        return gid
+    gid = odoo.execute("res.groups", "create", vals)
     odoo.execute(
-        "ir.model.access",
+        "ir.model.data",
         "create",
         {
-            "name": name,
-            "model_id": model_id,
-            "group_id": group_id,
-            "perm_read": True,
-            "perm_write": True,
-            "perm_create": True,
-            "perm_unlink": True,
+            "name": BACKUP_GROUP_XMLID,
+            "model": "res.groups",
+            "module": "brodan_backup",
+            "res_id": gid,
+            "noupdate": True,
         },
     )
+    return gid
+
+
+def _set_groups(odoo: Odoo, model: str, ids: list[int], group_id: int) -> None:
+    if ids:
+        odoo.execute(model, "write", ids, {"groups_id": [(6, 0, [group_id])]})
+
+
+def restrict_backup_to_owner(odoo: Odoo) -> dict:
+    """Hide backup menus, logs, cron, and leftover probe actions from everyone except the owner."""
+    gid = ensure_backup_owner_group(odoo)
+    config_model_id = odoo.execute("ir.model", "search", [("model", "=", CONFIG_MODEL)], limit=1)
+    log_model_id = odoo.execute("ir.model", "search", [("model", "=", LOG_MODEL)], limit=1)
+    if config_model_id:
+        ensure_access(odoo, config_model_id[0], "access_x_brodan_backup_config_system", gid)
+    if log_model_id:
+        ensure_access(odoo, log_model_id[0], "access_x_brodan_backup_log_system", gid)
+    extra_acl = odoo.execute(
+        "ir.model.access",
+        "search",
+        [("model_id.model", "in", [CONFIG_MODEL, LOG_MODEL])],
+    ) or []
+    if extra_acl:
+        odoo.execute("ir.model.access", "write", extra_acl, {"group_id": gid})
+
+    menu_ids = []
+    for xml_name in ("menu_root", "menu_config", "menu_log"):
+        data = odoo.execute(
+            "ir.model.data",
+            "search_read",
+            [("module", "=", "brodan_backup"), ("name", "=", xml_name)],
+            ["res_id"],
+            limit=1,
+        )
+        if data:
+            menu_ids.append(data[0]["res_id"])
+    root = odoo.execute("ir.ui.menu", "search", [("name", "=", MENU_NAME), ("parent_id.name", "=", "Settings")], limit=5)
+    menu_ids.extend(root or [])
+    if root:
+        menu_ids.extend(odoo.execute("ir.ui.menu", "search", [("parent_id", "in", root)]) or [])
+    _set_groups(odoo, "ir.ui.menu", sorted(set(menu_ids)), gid)
+
+    action_ids = []
+    for xml_name in ("action_config", "action_log"):
+        data = odoo.execute(
+            "ir.model.data",
+            "search_read",
+            [("module", "=", "brodan_backup"), ("name", "=", xml_name)],
+            ["res_id"],
+            limit=1,
+        )
+        if data:
+            action_ids.append(data[0]["res_id"])
+    action_ids.extend(
+        odoo.execute("ir.actions.act_window", "search", [("name", "in", [MENU_NAME, "سجل النسخ الاحتياطي"]), ("res_model", "in", [CONFIG_MODEL, LOG_MODEL])])
+        or []
+    )
+    _set_groups(odoo, "ir.actions.act_window", sorted(set(action_ids)), gid)
+
+    server_ids = odoo.execute(
+        "ir.actions.server",
+        "search",
+        [("name", "in", [SERVER_ACTION_NAME, CRON_NAME])],
+    ) or []
+    _set_groups(odoo, "ir.actions.server", server_ids, gid)
+
+    cron_ids = odoo.execute("ir.cron", "search", [("name", "=", CRON_NAME)]) or []
+    _set_groups(odoo, "ir.cron", cron_ids, gid)
+
+    leftover = odoo.execute("ir.actions.server", "search", [("name", "in", list(LEFTOVER_BACKUP_ACTION_NAMES))]) or []
+    if leftover:
+        odoo.execute("ir.actions.server", "unlink", leftover)
+
+    group = odoo.execute("res.groups", "read", [gid], ["users"])[0]
+    return {
+        "group_id": gid,
+        "owner_users": group.get("users") or [],
+        "menus": sorted(set(menu_ids)),
+        "removed_probe_actions": leftover,
+    }
 
 
 def ensure_view(odoo: Odoo, xml_id_name: str, model: str, vtype: str, arch: str, name: str) -> int:
@@ -625,6 +743,7 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
 
     if run_now:
         odoo.execute("ir.actions.server", "run", [server_id])
+    restricted = restrict_backup_to_owner(odoo)
     logs = odoo.execute(LOG_MODEL, "search_read", [], ["x_name", "x_state", "x_message", "x_size"], limit=3, order="id desc")
     cfg_row = odoo.execute(CONFIG_MODEL, "read", [cfg_id], ["x_name", "x_folder", "x_last_status", "x_active"])[0]
     status = (cfg_row.get("x_last_status") or "")
@@ -635,6 +754,7 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
         "config": cfg_row,
         "logs": logs,
         "rclone": rclone_ver,
+        "restricted": restricted,
         "skipped_for_disk": "تم تخطي" in status,
     }
 
@@ -642,17 +762,26 @@ def install_backup_app(odoo: Odoo, run_now: bool = False) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--restrict", action="store_true", help="Hide backup UI from everyone except the owner")
     parser.add_argument("--run", action="store_true", help="Run a backup/probe after installing")
     args = parser.parse_args(argv)
     load_dotenv(ROOT / ".env")
     odoo = Odoo(require_env("ODOO_URL"), require_env("ODOO_DB"), require_env("ODOO_USERNAME"), require_env("ODOO_API_KEY"))
-    cleanup = cleanup_stuck_modules(odoo)
-    installed = install_backup_app(odoo, run_now=args.run) if args.apply else {"apply": False}
+    cleanup = []
+    installed = {"apply": False}
+    restricted = {}
+    if args.apply:
+        cleanup = cleanup_stuck_modules(odoo)
+        installed = install_backup_app(odoo, run_now=args.run)
+        restricted = installed.get("restricted") or {}
+    elif args.restrict:
+        restricted = restrict_backup_to_owner(odoo)
     report = {
         "database": odoo.db,
         "apply": args.apply,
         "cleanup": cleanup,
         "installed": installed,
+        "restricted": restricted,
         "helpers": {
             "skip_example": skip_message(54 * 1024 ** 3, 6 * 1024 ** 3),
             "onedrive": onedrive_missing_message(),

@@ -97,6 +97,22 @@ class BrodanBackupTests(unittest.TestCase):
         self.assertIn("lsd --onedrive-drive-type personal onedrive:", probe)
         self.assertIn("--contimeout 8s", probe)
 
+    def test_backup_ui_is_owner_only(self):
+        self.assertEqual(mod.BACKUP_OWNER_LOGIN, "whmm2299@hotmail.com")
+        self.assertEqual(mod.BACKUP_OWNER_UID, 2)
+        self.assertEqual(mod.BACKUP_GROUP_NAME, "Brodansh Backup Owner")
+        self.assertIn("BRODAN: onedrive meta", mod.LEFTOVER_BACKUP_ACTION_NAMES)
+        self.assertIn("BRODAN: run ts check", mod.LEFTOVER_BACKUP_ACTION_NAMES)
+        self.assertIn("BRODAN: stop od dump", mod.LEFTOVER_BACKUP_ACTION_NAMES)
+        views = (ROOT / "brodan_backup" / "views" / "backup_views.xml").read_text(encoding="utf-8")
+        self.assertIn("groups=\"brodan_backup.group_backup_owner\"", views)
+        access = (ROOT / "brodan_backup" / "security" / "ir.model.access.csv").read_text(encoding="utf-8")
+        self.assertIn("group_backup_owner", access)
+        self.assertNotIn("base.group_system", access)
+        installer = (ROOT / "scripts" / "install_brodan_backup.py").read_text(encoding="utf-8")
+        self.assertIn("restrict_backup_to_owner", installer)
+        self.assertIn("LEFTOVER_BACKUP_ACTION_NAMES", installer)
+
 
 if __name__ == "__main__":
     unittest.main()

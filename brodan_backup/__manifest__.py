@@ -2,16 +2,17 @@
 {
     "name": "BRODAN Backup",
     "summary": "نسخ احتياطي لقاعدة البيانات مع فحص المساحة وجدولة يومية",
-    "version": "18.0.1.1.0",
+    "version": "18.0.1.2.0",
     "author": "BRODAN",
     "license": "LGPL-3",
     "category": "Administration",
     "depends": ["base", "mail"],
     "data": [
+        "security/backup_security.xml",
         "security/ir.model.access.csv",
         "views/backup_views.xml",
         "data/backup_cron.xml",
     ],
     "installable": True,
-    "application": True,
+    "application": False,
 }
