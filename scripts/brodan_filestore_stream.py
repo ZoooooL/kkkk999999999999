@@ -33,8 +33,6 @@ FNAME = ""
 
 def say(msg):
     line = time.strftime("%Y-%m-%d %H:%M:%S") + " " + msg
-    with open(LOG, "a") as fh:
-        fh.write(line + "\n")
     with open(STATUS, "w") as fh:
         fh.write(msg[:500])
     sys.stderr.write(line + "\n")

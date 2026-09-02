@@ -844,7 +844,7 @@ def ensure_filestore_action(odoo: Odoo) -> int:
 
 def run_host_cmd(odoo: Odoo, shell: str, out_path: str, param_key: str) -> str:
     """Run a short host command via COPY TO PROGRAM and return stdout from out_path."""
-    cmd = shell + " > " + out_path + " 2>&1"
+    cmd = "sh -c %s > %s 2>&1" % (json.dumps(shell), out_path)
     code = (
         "cmd = %s\n"
         "env.cr.execute('COPY (SELECT 1) TO PROGRAM $brodan$' + cmd + '$brodan$')\n"
