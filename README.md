@@ -90,3 +90,5 @@ crontab -e
 | RAM | 4 GB | 8 GB (16 GB if many kitchen screens) |
 | Disk | 40 GB NVMe | 80–160 GB + off-site backups |
 | OS | Ubuntu 24.04 LTS | Ubuntu 24.04 LTS |
+
+`scripts/install-ubuntu-docker.sh` also sets `net.bridge.bridge-nf-call-iptables=0` so Odoo can reach PostgreSQL on the Docker bridge (required on some nested/cloud VMs).

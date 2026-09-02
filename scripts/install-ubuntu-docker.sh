@@ -46,6 +46,20 @@ cat > /etc/docker/daemon.json <<JSON
 }
 JSON
 
+# Nested/cloud VMs often send docker-bridge traffic through iptables
+# (bridge-nf-call-iptables=1), which drops Odoo -> Postgres on 5432.
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
+if [[ -w /proc/sys/net/bridge/bridge-nf-call-iptables ]]; then
+  sysctl -w net.bridge.bridge-nf-call-iptables=0 >/dev/null || true
+  sysctl -w net.bridge.bridge-nf-call-ip6tables=0 >/dev/null || true
+fi
+mkdir -p /etc/sysctl.d
+cat > /etc/sysctl.d/99-odoo-docker.conf <<'SYSCTL'
+net.ipv4.ip_forward=1
+net.bridge.bridge-nf-call-iptables=0
+net.bridge.bridge-nf-call-ip6tables=0
+SYSCTL
+
 if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
   systemctl enable --now docker
 else

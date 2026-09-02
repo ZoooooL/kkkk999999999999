@@ -51,8 +51,8 @@ def main() -> None:
             )
     OUT.write_text(render(TEMPLATE, env), encoding="utf-8")
     PROD_OUT.write_text(render(PROD_TEMPLATE, env), encoding="utf-8")
-    os.chmod(OUT, 0o600)
-    os.chmod(PROD_OUT, 0o600)
+    os.chmod(OUT, 0o644)
+    os.chmod(PROD_OUT, 0o644)
     print(f"Wrote {OUT.relative_to(ROOT)} and {PROD_OUT.relative_to(ROOT)}")
 
 
