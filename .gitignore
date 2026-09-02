@@ -10,13 +10,9 @@ __pycache__/
 .venv/
 *.egg-info/
 .DS_Store
-backups/*.sql
-backups/*.dump
-backups/*.gz
-backups/*.tgz
-backups/*.tar
-backups/*.zip
+backups/**
 !backups/.gitkeep
 config/odoo.conf.local
 certs/
 logs/
+live1/fingerprint.runtime.json

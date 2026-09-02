@@ -17,6 +17,14 @@ if [[ -z ${ODOO_DOMAIN:-} || -z ${LETSENCRYPT_EMAIL:-} ]]; then
   exit 1
 fi
 
+# Refuse if this hostname still points at an existing AWS Odoo.
+if command -v getent >/dev/null; then
+  while read -r ip _; do
+    [[ -z ${ip:-} ]] && continue
+    forbid_touching_live1 "$ip"
+  done < <(getent ahostsv4 "$ODOO_DOMAIN" 2>/dev/null || true)
+fi
+
 python3 scripts/render-odoo-conf.py
 python3 scripts/render-nginx.py
 mkdir -p certs/www

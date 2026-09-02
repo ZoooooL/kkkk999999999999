@@ -21,7 +21,7 @@
 | النظام | Ubuntu 24.04 |
 | الموقع 1 | **fsn1 — Falkenstein, Germany** |
 | الموقع 2 | **nbg1 — Nuremberg, Germany** (نفس السعر والشبكة الأوروبية) |
-| الاسم المقترح | `brodansh-odoo` |
+| الاسم المقترح | `brodansh-live2` |
 
 لا تطلب Contabo أو Hostinger لهذا النقل. CX33 يكفي للمناديب وPOS؛ انتقل إلى CX43 لاحقاً فقط إذا امتلأت الذاكرة.
 
@@ -46,7 +46,7 @@ export HCLOUD_SSH_KEY=your-key-name
 | لا يُنصح به للميزانية | DigitalOcean Droplet 4 GB | Basic | 2 vCPU · 4 GB · 80 GB | **$24** | أضعف وأغلى من Hetzner بنحو 3× |
 | مجاني لكن غير موثوق للحسابات | Oracle Cloud Always Free | VM.Standard.A1.Flex | 4 ARM · 24 GB | **$0** | ARM يعمل مع `odoo:18.0` (arm64)، لكن فتح الحساب والحدود صعبة |
 
-**الخيار الافتراضي لبرودانش: Hetzner CX33، نظام Ubuntu 24.04، موقع FSN1 أو NBG1.** أضف Volume إن امتلأ الـ filestore (€0.0572/GB ≈ €5.7 لكل 100 GB). فعّل Backups (+20٪ ≈ €1.80) من اليوم الأول.
+**الخيار الافتراضي لـ Live 2: Hetzner CX33، نظام Ubuntu 24.04، موقع FSN1 أو NBG1.** Live 1 على AWS يبقى كما هو. أضف Volume إن امتلأ الـ filestore (€0.0572/GB ≈ €5.7 لكل 100 GB). فعّل Backups (+20٪ ≈ €1.80) من اليوم الأول.
 
 ## لماذا ليس الأرخص دائماً؟
 
@@ -65,7 +65,7 @@ Hostinger أرخص في العرض الأول، لكن التجديد يقفز،
 | قرص إضافي 100 GB | €5.72 | غير لازم أولاً | غير لازم أولاً |
 | **المجموع** | **≈ €10–16** | **≈ €20** | **≈ €5–8** |
 
-خارج ذلك: نطاق `brodansh.de.com.eg` يبقى كما هو. بعد النقل غيّر A record إلى IP الجديد ثم `./scripts/ssl-init.sh`.
+خارج ذلك: نطاق Live 1 `brodansh.de.com.eg` يبقى كما هو على `18.133.13.149`. لا تغيّر A record الخاص به. أضف سجلاً **جديداً** لـ Live 2 ثم `./scripts/ssl-init.sh` على السيرفر الجديد فقط.
 
 ## خطوات الطلب (مثبّت: CX33 / FSN1 ثم NBG1)
 
@@ -75,7 +75,7 @@ Hostinger أرخص في العرض الأول، لكن التجديد يقفز،
 4. Image: **Ubuntu 24.04**.
 5. Type: **CX33** (Cost-Optimized / shared).
 6. Networking: IPv4 + IPv6. فعّل **Backups**.
-7. SSH key، الاسم `brodansh-odoo`، ثم Create.
+7. SSH key، الاسم `brodansh-live2`، ثم Create.
 8. على السيرفر:
 
 ```bash
@@ -86,7 +86,7 @@ cp .env.example .env && vim .env
 ./scripts/up.sh
 ```
 
-9. انقل القاعدة: `./scripts/migrate-from-live.sh` بعد ملء `LIVE_SSH_HOST`.
+9. انقل القواعد الأربع بملف تصدير قراءة فقط: `./scripts/import-live1-dump-to-live2.sh backups/brodansh-live1-readonly-XXXX.tar.gz`
 
 أو دفعة واحدة: `./scripts/hetzner-create-cx33.sh` بعد `export HCLOUD_TOKEN=...`.
 

@@ -40,4 +40,5 @@ chmod +x /tmp/import-hetzner-pack.sh
 EOF
 
 echo "Deployed Live 2 to $DEST. Live 1 DNS (${LIVE1_DOMAIN:-brodansh.de.com.eg}) was not changed."
-echo "Point a NEW record live2.brodansh.de.com.eg at the CX33 IP if you want HTTPS on Live 2."
+echo "Add a NEW hostname pointing at this CX33 IP. Do not change brodansh.de.com.eg."
+echo "Note: live2.brodansh.de.com.eg currently points at another AWS host (3.8.46.165); leave it unless you own that record."

@@ -1,8 +1,5 @@
-# Place Odoo 18 Enterprise addons here (private). The live Brodansh
-# database is 18.0+e, so restore will fail on Community-only unless
-# these modules are present.
+# Place Odoo 18 Enterprise addons here (private). Live 1 is 18.0+e;
+# Live 2 stays Community until this folder is filled from the
+# read-only export (enterprise.tgz). Do not SSH to Live 1 from here.
 #
-# Typical copy from the live server:
-#   rsync -a --delete live:/opt/odoo/enterprise/ ./enterprise/
-#
-# This directory is gitignored.
+# This directory is gitignored except this README.

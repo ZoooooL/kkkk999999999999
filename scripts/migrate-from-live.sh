@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# READ-ONLY clone of Live 1 into THIS Live-2 Docker stack.
-# Never restarts Odoo on AWS, never changes DNS for brodansh.de.com.eg.
+# Optional READ-ONLY SSH pull of Live 1 into THIS Live-2 Docker stack.
+# Disabled by default so Live 1 is never contacted.
+# Prefer: export-live1-readonly.sh on AWS, then import-live1-dump-to-live2.sh here.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -13,6 +14,15 @@ set +a
 
 forbid_touching_live1 "${ODOO_DOMAIN:-}"
 
+if [[ ${ALLOW_LIVE1_READONLY_SSH:-0} != 1 ]]; then
+  echo "Refusing SSH to Live 1. Live 1 stays as-is." >&2
+  echo "Copy a dump file into backups/ and run:" >&2
+  echo "  ./scripts/import-live1-dump-to-live2.sh backups/brodansh-live1-readonly-XXXX.tar.gz" >&2
+  echo "To opt in to a read-only SSH dump (no restart, no DNS change):" >&2
+  echo "  ALLOW_LIVE1_READONLY_SSH=1 $0" >&2
+  exit 1
+fi
+
 if [[ -z ${LIVE_SSH_HOST:-} ]]; then
   echo "Set LIVE_SSH_HOST in .env (the current Ubuntu Odoo server)." >&2
   exit 1
@@ -20,68 +30,28 @@ fi
 
 SSH=(ssh -p "${LIVE_SSH_PORT:-22}" -o StrictHostKeyChecking=accept-new "${LIVE_SSH_USER}@${LIVE_SSH_HOST}")
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-STAGE="$ROOT/backups/live-$STAMP"
-mkdir -p "$STAGE" enterprise addons
+mkdir -p "$ROOT/backups" enterprise addons
 
-echo "1/4 READ-ONLY inspect of Live 1 ${LIVE_SSH_USER}@${LIVE_SSH_HOST} (no writes)..."
+echo "1/4 READ-ONLY inspect of Live 1 ${LIVE_SSH_USER}@${LIVE_SSH_HOST} (no restart)..."
 "${SSH[@]}" 'set -e
   echo "hostname=$(hostname)"
   echo "os=$(. /etc/os-release; echo $PRETTY_NAME)"
   command -v docker >/dev/null && docker ps --format "docker={{.Names}} {{.Image}}" || echo "docker=not-running"
-  command -v psql >/dev/null && echo "psql=$(psql --version)" || true
-  ls -d /var/lib/odoo /opt/odoo /home/odoo 2>/dev/null || true
 '
 
-echo "2/4 READ-ONLY pg_dump of ${LIVE_ODOO_DB} (Live 1 stays online)..."
-# Prefer docker exec when the live host already runs Postgres in Docker.
-if "${SSH[@]}" 'docker ps --format "{{.Names}}" | grep -Eq "db|postgres|odoo"'; then
-  DB_CONTAINER=$("${SSH[@]}" 'docker ps --format "{{.Names}}" | grep -E "db|postgres" | head -1')
-  "${SSH[@]}" "docker exec -t ${DB_CONTAINER} pg_dump -U odoo -Fc ${LIVE_ODOO_DB}" > "$STAGE/${LIVE_ODOO_DB}.dump" \
-    || "${SSH[@]}" "docker exec -t ${DB_CONTAINER} pg_dump -U odoo -Fc postgres" > "$STAGE/${LIVE_ODOO_DB}.dump"
-else
-  "${SSH[@]}" "sudo -u postgres pg_dump -Fc ${LIVE_ODOO_DB}" > "$STAGE/${LIVE_ODOO_DB}.dump"
-fi
+echo "2/4 READ-ONLY export of all databases (Live 1 stays online)..."
+scp -P "${LIVE_SSH_PORT:-22}" -o StrictHostKeyChecking=accept-new \
+  "$ROOT/scripts/export-live1-readonly.sh" \
+  "${LIVE_SSH_USER}@${LIVE_SSH_HOST}:/tmp/export-live1-readonly.sh"
+REMOTE_OUT=/tmp/brodansh-live1-readonly-${STAMP}
+"${SSH[@]}" "sudo env LIVE_ODOO_DBS='${LIVE_ODOO_DBS:-brodan,brodan2026,brodansh,test}' LIVE_FILESTORE='${LIVE_FILESTORE}' LIVE_ENTERPRISE='${LIVE_ENTERPRISE}' LIVE_CUSTOM_ADDONS='${LIVE_CUSTOM_ADDONS}' bash /tmp/export-live1-readonly.sh ${REMOTE_OUT}"
 
-echo "3/4 Copying filestore and Enterprise addons..."
-rsync -az --info=progress2 -e "ssh -p ${LIVE_SSH_PORT:-22}" \
-  "${LIVE_SSH_USER}@${LIVE_SSH_HOST}:${LIVE_FILESTORE}/${LIVE_ODOO_DB}/" \
-  "$STAGE/filestore/" || true
-if [[ -n ${LIVE_ENTERPRISE:-} ]]; then
-  rsync -az --info=progress2 -e "ssh -p ${LIVE_SSH_PORT:-22}" \
-    "${LIVE_SSH_USER}@${LIVE_SSH_HOST}:${LIVE_ENTERPRISE}/" \
-    "$ROOT/enterprise/" || true
-fi
-if [[ -n ${LIVE_CUSTOM_ADDONS:-} ]]; then
-  rsync -az --info=progress2 -e "ssh -p ${LIVE_SSH_PORT:-22}" \
-    "${LIVE_SSH_USER}@${LIVE_SSH_HOST}:${LIVE_CUSTOM_ADDONS}/" \
-    "$ROOT/addons/" || true
-fi
+echo "3/4 Copy dump off Live 1 into backups/..."
+LOCAL_DUMP="$ROOT/backups/brodansh-live1-readonly-${STAMP}.tar.gz"
+scp -P "${LIVE_SSH_PORT:-22}" -o StrictHostKeyChecking=accept-new \
+  "${LIVE_SSH_USER}@${LIVE_SSH_HOST}:${REMOTE_OUT}.tar.gz" \
+  "$LOCAL_DUMP"
 
-echo "4/4 Restoring into Live 2 Docker only..."
-python3 scripts/render-odoo-conf.py
-docker compose --env-file .env up -d db
-for _ in $(seq 1 30); do
-  docker compose --env-file .env exec -T db pg_isready -U "$POSTGRES_USER" && break
-  sleep 2
-done
-
-docker compose --env-file .env exec -T db \
-  pg_restore --verbose --no-owner --role="$POSTGRES_USER" -U "$POSTGRES_USER" -d postgres --create \
-  < "$STAGE/${LIVE_ODOO_DB}.dump" \
-  || docker compose --env-file .env exec -T db \
-       pg_restore --verbose --no-owner --role="$POSTGRES_USER" -U "$POSTGRES_USER" -d "$LIVE_ODOO_DB" \
-       < "$STAGE/${LIVE_ODOO_DB}.dump"
-
-if [[ -d $STAGE/filestore && -n $(ls -A "$STAGE/filestore" 2>/dev/null || true) ]]; then
-  docker compose --env-file .env up -d odoo
-  docker compose --env-file .env stop odoo
-  docker compose --env-file .env run --rm --no-deps --entrypoint bash odoo -lc \
-    "mkdir -p /var/lib/odoo/filestore/${LIVE_ODOO_DB}"
-  docker compose --env-file .env run --rm --no-deps --entrypoint tar odoo \
-    -C "/var/lib/odoo/filestore/${LIVE_ODOO_DB}" -xzf - < <(tar -C "$STAGE/filestore" -czf - .)
-fi
-
-docker compose --env-file .env up -d odoo
-echo "Live 2 restored from $STAGE"
-echo "Live 1 (${LIVE1_DOMAIN:-brodansh.de.com.eg} / ${LIVE1_IP:-18.133.13.149}) was not modified."
-echo "Open Live 2: http://127.0.0.1:${ODOO_HTTP_PORT:-8069}"
+echo "4/4 Restore into Live 2 Docker only..."
+"$ROOT/scripts/import-live1-dump-to-live2.sh" "$LOCAL_DUMP"
+echo "Live 1 (${LIVE1_DOMAIN:-brodansh.de.com.eg} / ${LIVE1_IP:-18.133.13.149}) was not restarted or re-pointed."

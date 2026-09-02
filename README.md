@@ -1,69 +1,61 @@
-# Brodansh — Live 1 as-is, Live 2 = 100% clone
+# Brodansh — Live 1 as-is, Live 2 = matching clone
 
-**Live 1 لا يُمَس:** https://brodansh.de.com.eg على AWS (`18.133.13.149`، Odoo 18.0+e). لا DNS، لا SSL، لا إعادة تشغيل، لا كتابة على القاعدة.
+**Live 1 لا يُمَس:** https://brodansh.de.com.eg على AWS (`18.133.13.149`، Odoo 18.0+e). لا DNS، لا SSL، لا إعادة تشغيل، لا كتابة، ولا SSH من هذا المستودع إلا إذا فعّلت ذلك بنفسك.
 
-**Live 2** نسخة مطابقة جاهزة على Docker / Hetzner CX33 Ubuntu 24.04، على نطاق منفصل: `live2.brodansh.de.com.eg` أو IP السيرفر الجديد.
+**Live 2** ستاك Docker منفصل (محلي أو Hetzner CX33 Ubuntu 24.04). السكربتات ترفض `brodansh.de.com.eg` و`18.133.13.149` و`3.8.46.165`.
 
-السكربتات ترفض أي هدف = `brodansh.de.com.eg` أو `18.133.13.149`.
+## ماذا يطابق Live 1؟
 
-## كيف تصبح Live 2 = Live 1 بنسبة 100%
+| | Live 1 (مجمّد) | Live 2 المستهدف |
+| --- | --- | --- |
+| الإصدار | 18.0+e | 18.0+e بعد وضع `enterprise/` |
+| القواعد | `brodan`, `brodan2026`, `brodansh`, `test` | نفس الأسماء بعد الاستيراد |
+| اختيار القاعدة | `list_db=True` علني | نفس الإعداد |
+| النطاق | `brodansh.de.com.eg` | IP السيرفر الجديد أو نطاق **جديد** |
 
-النسخة الكاملة تحتاج نسخة **قراءة فقط** من Live 1: PostgreSQL + filestore + مجلد Enterprise. لا تغيّر Live 1؛ فقط `pg_dump` و`tar`.
+`live2.brodansh.de.com.eg` يشير حالياً إلى سيرفر AWS آخر (`3.8.46.165`، قاعدة `clo`). لن نغيّر هذا السجل.
 
-**على Live 1 (قراءة فقط):**
+## Live 2 جاهزة — النسخة 100% تحتاج ملف التصدير فقط
+
+الستاك هنا يقلع ويُظهر نفس سلوك Live 1 (محدد القواعد). البيانات الحقيقية + Enterprise لا تُنسخ من الإنترنت.
+
+**على Live 1 (قراءة فقط، لا إعادة تشغيل):**
 
 ```bash
-# انسخ السكربت إلى AWS ثم:
 sudo ./scripts/export-live1-readonly.sh
 # ينتج: /tmp/brodansh-live1-readonly-XXXX.tar.gz
 ```
 
-**على Live 2 (هذا Docker أو CX33):**
+**على Live 2 (هذا المشروع — بدون SSH إلى AWS):**
 
 ```bash
-scp ubuntu@18.133.13.149:/tmp/brodansh-live1-readonly-*.tar.gz ./backups/
-./scripts/import-live1-dump-to-live2.sh backups/brodansh-live1-readonly-XXXX.tar.gz
+cp /path/to/brodansh-live1-readonly-XXXX.tar.gz backups/
+./scripts/prepare-live2-identical.sh
 ./scripts/check-live-parity.sh
 ```
 
-أو بسحب SSH للقراءة فقط (لا يعيد تشغيل أودو على AWS):
+`check-live-parity.sh` يجب أن يطبع `OK` عندما يتطابق الإصدار `18.0+e` وأسماء القواعد الأربع.
+
+## تشغيل Live 2 بدون البيانات بعد
 
 ```bash
-./scripts/migrate-from-live.sh
+cp .env.example .env
+./scripts/prepare-live2-identical.sh
 ```
 
-ثم إن أردت Hetzner:
+وحدات برودانش في `addons/`: مناديب، دفتر الأستاذ، المستندات.
 
-```bash
-./scripts/pack-for-hetzner.sh --require-enterprise
-./scripts/deploy-to-hetzner.sh root@CX33_IP
-```
-
-أضف سجل DNS **جديد** `live2.brodansh.de.com.eg` → IP هيتزنر. لا تغيّر سجل `brodansh.de.com.eg`.
-
-## إنشاء سيرفر Live 2 (Hetzner CX33)
+## Hetzner CX33 (اختياري)
 
 [console.hetzner.cloud](https://console.hetzner.cloud) → FSN1 أو NBG1 → Ubuntu 24.04 → **CX33** → الاسم **`brodansh-live2`**.
 
-```bash
-export HCLOUD_TOKEN=...
-./scripts/hetzner-create-cx33.sh
-```
-
-## تشغيل Live 2 محلياً (بدون نسخ القاعدة بعد)
-
-```bash
-cp .env.example .env   # ODOO_DOMAIN=live2.brodansh.de.com.eg
-./scripts/up.sh
-```
-
-وحدات برودانش في `addons/`: مناديب، دفتر الأستاذ، المستندات. Enterprise مرخّص ويُنسخ من Live 1 قراءة فقط.
+أضف سجل DNS **جديد** إلى IP هيتزنر. لا تغيّر `brodansh.de.com.eg`.
 
 ## حماية Live 1
 
 | ممنوع | مسموح |
 | --- | --- |
-| تغيير DNS لـ brodansh.de.com.eg | سجل جديد live2.brodansh.de.com.eg |
-| certbot على النطاق الأصلي | شهادة Live 2 فقط |
-| restart/upgrade على AWS | pg_dump / tar قراءة فقط |
-| rsync إلى Live 1 | rsync من Live 1 إلى Live 2 |
+| تغيير DNS لـ brodansh.de.com.eg | سجل جديد لسيرفر Live 2 |
+| certbot على النطاق الأصلي | شهادة لنطاق Live 2 فقط بعد أن يشير DNS إليه |
+| restart/upgrade على AWS | pg_dump / tar قراءة فقط على AWS ثم استيراد هنا |
+| rsync/scp إلى Live 1 | نسخ ملف التصدير إلى مجلد `backups/` |

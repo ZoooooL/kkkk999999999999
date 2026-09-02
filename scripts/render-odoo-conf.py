@@ -32,8 +32,6 @@ def render(template: Path, env: dict[str, str]) -> str:
         "admin_passwd = CHANGE_ME": f"admin_passwd = {env['ODOO_ADMIN_PASSWORD']}",
         "db_password = CHANGE_ME": f"db_password = {env['POSTGRES_PASSWORD']}",
         "db_user = odoo": f"db_user = {env.get('POSTGRES_USER', 'odoo')}",
-        "db_name = brodansh": f"db_name = {env.get('ODOO_DB_NAME', 'brodansh')}",
-        "dbfilter = ^brodansh$": f"dbfilter = ^{env.get('ODOO_DB_NAME', 'brodansh')}$",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)

@@ -1,0 +1,25 @@
+{
+  "captured_at": "2026-09-02T13:13:00Z",
+  "method": "public HTTP GET/JSON-RPC only — Live 1 was not SSH'd, restarted, or written to",
+  "url": "https://brodansh.de.com.eg",
+  "ip": "18.133.13.149",
+  "nginx": "nginx/1.18.0 (Ubuntu)",
+  "server_version": "18.0+e",
+  "server_version_info": [18, 0, 0, "final", 0, "e"],
+  "server_serie": "18.0",
+  "protocol_version": 1,
+  "databases": ["brodan", "brodan2026", "brodansh", "test"],
+  "list_db": true,
+  "dbfilter_empty": true,
+  "headers": {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-XSS-Protection": "1; mode=block"
+  },
+  "root_redirect": "/odoo",
+  "odoo_without_db_redirect": "/web/database/selector",
+  "website": true,
+  "currencies": ["LE", "SR", "$"],
+  "websocket_worker_version": "18.0-5",
+  "note": "100% data clone still needs a read-only dump (pg_dump + filestore + enterprise) dropped into backups/. This file is public metadata only."
+}

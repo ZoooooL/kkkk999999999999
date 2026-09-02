@@ -4,5 +4,5 @@
 #   brodan_partner_ledger_opening
 #   brodansh_documents
 #
-# Live https://brodansh.de.com.eg is Odoo 18.0 Enterprise. Licensed
-# enterprise/ addons still have to be copied from the current host.
+# Live 1 (https://brodansh.de.com.eg, 18.0+e) is never modified from here.
+# Licensed enterprise/ addons come from the read-only dump (enterprise.tgz).
