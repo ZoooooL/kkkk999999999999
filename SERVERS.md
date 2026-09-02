@@ -6,7 +6,34 @@
 
 أسعار اليوم (بدون ضريبة إلا إن ذُكر غير ذلك). تحقق من صفحة المزود قبل الدفع؛ Hetzner رفع الأسعار في 15 يونيو 2026.
 
-## التوصية
+## الاختيار النهائي (مثبّت)
+
+**Hetzner CX33 · Ubuntu 24.04 · Falkenstein (fsn1)، وإذا نفد: Nuremberg (nbg1).**
+
+| | |
+| --- | --- |
+| النوع | CX33 (Cost-Optimized / shared vCPU) |
+| المواصفات | 4 vCPU · 8 GB RAM · 80 GB NVMe · 20 TB |
+| السعر | €8.49 + €0.50 IPv4 ≈ **€8.99/شهر** (بدون ضريبة) |
+| النسخ الاحتياطي | +20٪ ≈ €1.80 → **≈ €10.80/شهر** مع Backup |
+| النظام | Ubuntu 24.04 |
+| الموقع 1 | **fsn1 — Falkenstein, Germany** |
+| الموقع 2 | **nbg1 — Nuremberg, Germany** (نفس السعر والشبكة الأوروبية) |
+| الاسم المقترح | `brodansh-odoo` |
+
+لا تطلب Contabo أو Hostinger لهذا النقل. CX33 يكفي للمناديب وPOS؛ انتقل إلى CX43 لاحقاً فقط إذا امتلأت الذاكرة.
+
+الإنشاء من الطرفية (يحتاج `HCLOUD_TOKEN`):
+
+```bash
+export HCLOUD_TOKEN=...
+export HCLOUD_SSH_KEY=your-key-name
+./scripts/hetzner-create-cx33.sh
+```
+
+بدون توكن يطبع السكربت نفس خطوات الكونسول ولا يطلب سيرفر.
+
+## التوصية (مقارنة)
 
 | الترتيب | المزود | الخطة | المواصفات | السعر / شهر | لماذا |
 | --- | --- | --- | --- | --- | --- |
@@ -38,15 +65,15 @@ Hostinger أرخص في العرض الأول، لكن التجديد يقفز،
 
 خارج ذلك: نطاق `brodansh.de.com.eg` يبقى كما هو. بعد النقل غيّر A record إلى IP الجديد ثم `./scripts/ssl-init.sh`.
 
-## خطوات الطلب (Hetzner)
+## خطوات الطلب (مثبّت: CX33 / FSN1 ثم NBG1)
 
 1. حساب على [console.hetzner.cloud](https://console.hetzner.cloud) (بطاقة أو PayPal).
 2. New project → Add server.
-3. Location: **Falkenstein (FSN1)** أو **Nuremberg (NBG1)**.
+3. Location: **Falkenstein (FSN1)**. إذا كان غير متاح: **Nuremberg (NBG1)**.
 4. Image: **Ubuntu 24.04**.
 5. Type: **CX33** (Cost-Optimized / shared).
-6. Networking: IPv4 + IPv6.
-7. SSH key، ثم Create.
+6. Networking: IPv4 + IPv6. فعّل **Backups**.
+7. SSH key، الاسم `brodansh-odoo`، ثم Create.
 8. على السيرفر:
 
 ```bash
@@ -58,6 +85,8 @@ cp .env.example .env && vim .env
 ```
 
 9. انقل القاعدة: `./scripts/migrate-from-live.sh` بعد ملء `LIVE_SSH_HOST`.
+
+أو دفعة واحدة: `./scripts/hetzner-create-cx33.sh` بعد `export HCLOUD_TOKEN=...`.
 
 ## مصادر الأسعار
 

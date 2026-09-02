@@ -42,7 +42,7 @@ Then copy `config/odoo.prod.conf.runtime` over the runtime file (or set `workers
 
 ## Move the live database
 
-1. Buy the VPS recommended in `SERVERS.md` (Hetzner CX33 is the default).
+1. Create **Hetzner CX33** in **Falkenstein (fsn1)** or **Nuremberg (nbg1)** — see `SERVERS.md` or `./scripts/hetzner-create-cx33.sh`.
 2. Point a test hostname, or use the server IP, and bring this stack up.
 3. Put SSH details in `.env` (`LIVE_SSH_HOST`, paths).
 4. Copy Enterprise addons (required for `18.0+e`):
@@ -81,6 +81,7 @@ crontab -e
 | `scripts/up.sh` | Render secrets and start the stack |
 | `scripts/backup.sh` / `restore.sh` | Dump/restore DB + filestore |
 | `scripts/migrate-from-live.sh` | Pull from the current Ubuntu host |
+| `scripts/hetzner-create-cx33.sh` | Order CX33 in FSN1, fallback NBG1 |
 
 ## Requirements
 
