@@ -1,17 +1,20 @@
-# Demo stack: Community Odoo 18 + Postgres 16 + nginx.
-# Production live site: docker-compose.prod.yml (same odoo-bin, host postgres/nginx).
+# Demo stack uses host networking because this environment's Docker bridge
+# cannot pass container-to-container TCP. Production on the live server uses
+# docker-compose.prod.yml (host net + live Enterprise + host Postgres).
 
 services:
   db:
     image: postgres:16
+    network_mode: host
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: odoo
       POSTGRES_PASSWORD: odoo
+      POSTGRES_HOST_AUTH_METHOD: md5
     volumes:
       - odoo-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U odoo -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -20,30 +23,27 @@ services:
   odoo:
     build: .
     image: brodan-odoo:18
+    network_mode: host
     depends_on:
       db:
         condition: service_healthy
     environment:
-      HOST: db
+      HOST: 127.0.0.1
       USER: odoo
       PASSWORD: odoo
     volumes:
       - odoo-data:/var/lib/odoo
       - ./config/odoo.conf:/etc/odoo/odoo.conf:ro
       - ../../brodan_backup:/mnt/extra-addons/brodan_backup:ro
-    expose:
-      - "8069"
-      - "8072"
     restart: unless-stopped
 
   nginx:
     image: nginx:1.18
+    network_mode: host
     depends_on:
       - odoo
-    ports:
-      - "18080:80"
     volumes:
-      - ./nginx/brodansh.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/brodansh.demo.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
 
 volumes:

@@ -42,7 +42,7 @@ docker compose run --rm odoo odoo -d brodansh -i base --stop-after-init --withou
 docker compose up -d odoo nginx
 ```
 
-Open http://127.0.0.1:18080/odoo — Community image only. Enterprise modules
-(`web_enterprise`, POS, Studio, …) come from the live `/odoo/odoo-server`
-bind-mount in production. Do not point the Community image at the live
-`brodansh` database.
+Open http://127.0.0.1:18080/odoo — Community image only. The demo compose uses host
+networking. Enterprise modules (`web_enterprise`, POS, Studio, …) come from the
+live `/odoo/odoo-server` bind-mount in production. Do not point the Community
+image at the live `brodansh` database.

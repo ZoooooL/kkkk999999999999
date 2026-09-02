@@ -12,7 +12,10 @@ if [ -x /odoo/odoo-server/odoo-bin ]; then
 fi
 
 if [ -x /entrypoint.sh ]; then
-  exec /entrypoint.sh odoo "$@"
+  if [ $# -eq 0 ]; then
+    set -- odoo
+  fi
+  exec /entrypoint.sh "$@"
 fi
 
 exec odoo "$@"
