@@ -38,7 +38,7 @@ services:
       PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - odoo-data:/var/lib/odoo
-      - ./config/odoo.conf.runtime:/etc/odoo/odoo.conf:ro
+      - ./config/${ODOO_CONF_FILE:-odoo.conf.runtime}:/etc/odoo/odoo.conf:ro
       - ./addons:/mnt/extra-addons
       - ./enterprise:/mnt/enterprise
     ports:

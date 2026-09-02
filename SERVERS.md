@@ -10,6 +10,8 @@
 
 **Hetzner CX33 · Ubuntu 24.04 · Falkenstein (fsn1)، وإذا نفد: Nuremberg (nbg1).**
 
+اللايف الآن على AWS London (`18.133.13.149`). النقل: Docker محلي ثم `./scripts/pack-for-hetzner.sh` و`./scripts/deploy-to-hetzner.sh`، أو إنشاء CX33 من الكونسول ثم `./scripts/migrate-from-live.sh`.
+
 | | |
 | --- | --- |
 | النوع | CX33 (Cost-Optimized / shared vCPU) |

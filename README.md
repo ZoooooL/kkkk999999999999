@@ -1,70 +1,78 @@
-# Brodansh Odoo 18 — Ubuntu + Docker
+# Brodansh Odoo 18 — Ubuntu + Docker → Hetzner CX33
 
-Production Docker stack for the live Brodansh ERP (`https://brodansh.de.com.eg`).
+الهدف: أن يعمل **https://brodansh.de.com.eg** كما اللايف الآن 100% على **Hetzner CX33 / Ubuntu 24.04** (Falkenstein `fsn1`، وإلا Nuremberg `nbg1`).
 
-The live server currently reports **Odoo 18.0 Enterprise** (`18.0+e`) behind **Nginx on Ubuntu**. This repository installs the same major version on Ubuntu 24.04 with Docker Compose, then gives you a path to move PostgreSQL + the filestore + Enterprise addons onto a cheaper VPS.
+اللايف الحالي: **Odoo 18.0 Enterprise** (`18.0+e`) خلف Nginx على **AWS London** (`18.133.13.149`).
 
-## What you get
+مساران مدعومان (نفس النتيجة):
 
-- Ubuntu 24.04 installer for Docker Engine + Compose
-- Odoo 18 image with Arabic fonts (`Amiri`, `Kacst`, `Noto`) and `ar_EG` locale
-- PostgreSQL 16 with `unaccent` and `pg_trgm`
-- Named volumes for the database and filestore
-- Nginx + Let's Encrypt profile for HTTPS
-- Backup, restore, and live-migration scripts
-- Server price comparison (September 2026) in `SERVERS.md`
+1. **Docker على جهازك ثم النقل إلى CX33** (المفضّل)
+2. **إنشاء CX33 من [console.hetzner.cloud](https://console.hetzner.cloud) ثم سحب اللايف إليه**
 
-Community starts 100% from `./scripts/up.sh`. Restoring the **live** database also needs Odoo Enterprise addons copied into `enterprise/` (that code is licensed, so it is not in git).
+كلاهما يحتاج: ملفات **Odoo Enterprise** + نسخة PostgreSQL + الـ filestore من السيرفر الحالي. هذه ليست في Git (ترخيص + بيانات).
 
-## Quick start on a new Ubuntu VPS
+## المسار 1 — Docker محلي ثم النقل
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git
-git clone <this-repo> odoo && cd odoo
-chmod +x scripts/*.sh
-sudo ./scripts/install-ubuntu-docker.sh
-# log out/in so docker group applies
-cp .env.example .env
-nano .env          # set POSTGRES_PASSWORD and ODOO_ADMIN_PASSWORD
-./scripts/up.sh
+cp .env.example .env          # LIVE_SSH_HOST=18.133.13.149 و HETZNER_SSH=root@CX33_IP
+./scripts/up.sh               # يقلع Odoo 18 + Postgres 16
+# انسخ Enterprise من اللايف (مطلوب لـ 18.0+e):
+rsync -az ubuntu@18.133.13.149:/opt/odoo/enterprise/ ./enterprise/
+./scripts/migrate-from-live.sh
+./scripts/check-live-parity.sh
+./scripts/pack-for-hetzner.sh --require-enterprise
+./scripts/deploy-to-hetzner.sh root@CX33_IP
 ```
 
-Open `http://SERVER_IP:8069` → database manager → create `brodansh`.
-
-Production with TLS after DNS points at the new IP:
+على CX33 بعد التأكد من الدخول وPOS والتقارير:
 
 ```bash
+# غيّر A record لـ brodansh.de.com.eg إلى IP هيتزنر
 ./scripts/ssl-init.sh
-docker compose --env-file .env --profile prod up -d
 ```
 
-Then copy `config/odoo.prod.conf.runtime` over the runtime file (or set `workers` / `list_db = False`) and `docker compose up -d odoo`.
+## المسار 2 — Hetzner أولاً
 
-## Move the live database
+من الكونسول: Location **Falkenstein (fsn1)** أو **nbg1** · Image **Ubuntu 24.04** · Type **CX33** · IPv4+IPv6 · Backups · الاسم `brodansh-odoo`.
 
-1. Create **Hetzner CX33** in **Falkenstein (fsn1)** or **Nuremberg (nbg1)** — see `SERVERS.md` or `./scripts/hetzner-create-cx33.sh`.
-2. Point a test hostname, or use the server IP, and bring this stack up.
-3. Put SSH details in `.env` (`LIVE_SSH_HOST`, paths).
-4. Copy Enterprise addons (required for `18.0+e`):
-
-   ```bash
-   rsync -az root@LIVE:/path/to/enterprise/ ./enterprise/
-   ```
-
-5. Run:
-
-   ```bash
-   ./scripts/migrate-from-live.sh
-   ./scripts/smoke-test.sh
-   ```
-
-6. Switch DNS for `brodansh.de.com.eg` only after login, POS, and PDF reports work.
-
-Daily backup on the new server:
+أو:
 
 ```bash
-crontab -e
-# 0 2 * * * /opt/odoo/scripts/backup.sh
+export HCLOUD_TOKEN=...
+export HCLOUD_SSH_KEY=your-key
+./scripts/hetzner-create-cx33.sh
+```
+
+ثم على السيرفر:
+
+```bash
+git clone <repo> /opt/odoo && cd /opt/odoo
+./scripts/install-ubuntu-docker.sh
+cp .env.example .env && vim .env
+./scripts/up.sh
+./scripts/migrate-from-live.sh
+./scripts/check-live-parity.sh
+./scripts/ssl-init.sh
+```
+
+لا تُحوّل DNS قبل نجاح `check-live-parity.sh` وتجربة المناديب والفواتير PDF.
+
+## الوحدات المخصّصة المضمّنة
+
+مجلد `addons/` يُحمَّل تلقائياً:
+
+- `brodansh_mandoub_pos` — جلسات المناديب وشاشة المطبخ
+- `brodan_partner_ledger_opening` — دفتر الأستاذ والرصيد الافتتاحي
+- `brodansh_documents` — تنظيم المستندات
+
+## تشغيل سريع للتجربة (Community)
+
+بدون Enterprise يعمل أودو 18 Community فقط — ليس نسخة اللايف.
+
+```bash
+sudo ./scripts/install-ubuntu-docker.sh
+cp .env.example .env
+./scripts/up.sh
 ```
 
 ## Layout
@@ -72,24 +80,11 @@ crontab -e
 | Path | Role |
 | --- | --- |
 | `compose.yaml` | Odoo + Postgres; Nginx with `--profile prod` |
-| `Dockerfile` | Official `odoo:18.0` + Arabic fonts |
-| `config/odoo.conf` | First-boot config (`list_db = True`, `workers = 0`) |
-| `config/odoo.prod.conf` | Production workers + `dbfilter` |
-| `addons/` | Custom modules (mandoub POS, etc.) |
-| `enterprise/` | Odoo Enterprise addons (gitignored) |
-| `scripts/install-ubuntu-docker.sh` | Docker CE on Ubuntu |
-| `scripts/up.sh` | Render secrets and start the stack |
-| `scripts/backup.sh` / `restore.sh` | Dump/restore DB + filestore |
-| `scripts/migrate-from-live.sh` | Pull from the current Ubuntu host |
-| `scripts/hetzner-create-cx33.sh` | Order CX33 in FSN1, fallback NBG1 |
-
-## Requirements
-
-| Item | Minimum | Comfortable for Brodansh POS |
-| --- | --- | --- |
-| vCPU | 2 | 4 |
-| RAM | 4 GB | 8 GB (16 GB if many kitchen screens) |
-| Disk | 40 GB NVMe | 80–160 GB + off-site backups |
-| OS | Ubuntu 24.04 LTS | Ubuntu 24.04 LTS |
-
-`scripts/install-ubuntu-docker.sh` also sets `net.bridge.bridge-nf-call-iptables=0` so Odoo can reach PostgreSQL on the Docker bridge (required on some nested/cloud VMs).
+| `addons/` | وحدات برودانش |
+| `enterprise/` | Odoo Enterprise (gitignored) |
+| `scripts/pack-for-hetzner.sh` | حزمة Docker محلية للنقل |
+| `scripts/deploy-to-hetzner.sh` | رفع الحزمة إلى CX33 |
+| `scripts/import-hetzner-pack.sh` | فك الحزمة على السيرفر |
+| `scripts/migrate-from-live.sh` | سحب القاعدة من AWS |
+| `scripts/check-live-parity.sh` | مقارنة الإصدار مع اللايف |
+| `scripts/hetzner-create-cx33.sh` | طلب CX33 في FSN1/NBG1 |

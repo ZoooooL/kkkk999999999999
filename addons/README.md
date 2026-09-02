@@ -1,4 +1,8 @@
-# Custom Odoo addons (Community or extra modules) are mounted at /mnt/extra-addons.
-# Copy Brodansh modules here, for example:
-#   git checkout origin/cursor/mandoub-pos-kitchen-c637 -- brodansh_mandoub_pos
-#   mv brodansh_mandoub_pos addons/
+# Custom addons mounted at /mnt/extra-addons.
+# These match the Brodansh live customizations (Odoo 18):
+#   brodansh_mandoub_pos
+#   brodan_partner_ledger_opening
+#   brodansh_documents
+#
+# Live https://brodansh.de.com.eg is Odoo 18.0 Enterprise. Licensed
+# enterprise/ addons still have to be copied from the current host.
