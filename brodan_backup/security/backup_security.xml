@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_brodan_backup" model="ir.module.category">
+        <field name="name">Brodansh Backup</field>
+        <field name="sequence">200</field>
+        <field name="visible" eval="False"/>
+    </record>
+    <record id="group_backup_owner" model="res.groups">
+        <field name="name">Brodansh Backup Owner</field>
+        <field name="category_id" ref="module_category_brodan_backup"/>
+        <field name="comment">النسخ الاحتياطي ظاهر لمالك برودانش فقط</field>
+    </record>
+</odoo>

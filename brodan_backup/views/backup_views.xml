@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_brodan_backup_config_form" model="ir.ui.view">
+        <field name="name">brodan.backup.config.form</field>
+        <field name="model">brodan.backup.config</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_run_now" type="object" string="نسخ الآن" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="folder"/>
+                        <field name="days_to_keep"/>
+                        <field name="active"/>
+                    </group>
+                    <group string="النسخ إلى OneDrive (مستحسن)">
+                        <field name="onedrive_folder" placeholder="Brodansh_Backups"/>
+                        <field name="onedrive_drive_type" placeholder="personal"/>
+                        <field name="onedrive_token" password="True"/>
+                    </group>
+                    <group string="احتياطي: القرص D على اللاب">
+                        <field name="sftp_host" placeholder="100.78.222.34"/>
+                        <field name="sftp_user" placeholder="lenovo"/>
+                        <field name="sftp_password" password="True"/>
+                        <field name="sftp_path" placeholder="/D:/Zool Sulotion"/>
+                    </group>
+                    <group>
+                        <field name="last_run" readonly="1"/>
+                        <field name="last_status" readonly="1"/>
+                        <div class="text-muted">نسخ الآن يرفع القاعدة فقط. المرفقات تُرفع كملف tar.gz منفصل إلى OneDrive. الحساب المجاني 5GB لا يكفي.</div>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_brodan_backup_log_tree" model="ir.ui.view">
+        <field name="name">brodan.backup.log.tree</field>
+        <field name="model">brodan.backup.log</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="create_date"/>
+                <field name="name"/>
+                <field name="state"/>
+                <field name="size"/>
+                <field name="message"/>
+            </list>
+        </field>
+    </record>
+    <record id="action_brodan_backup_config" model="ir.actions.act_window">
+        <field name="name">النسخ الاحتياطي</field>
+        <field name="res_model">brodan.backup.config</field>
+        <field name="view_mode">form</field>
+        <field name="groups_id" eval="[(4, ref('group_backup_owner'))]"/>
+    </record>
+    <record id="action_brodan_backup_log" model="ir.actions.act_window">
+        <field name="name">سجل النسخ الاحتياطي</field>
+        <field name="res_model">brodan.backup.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="groups_id" eval="[(4, ref('group_backup_owner'))]"/>
+    </record>
+    <menuitem id="menu_brodan_backup_root" name="النسخ الاحتياطي" parent="base.menu_administration" sequence="80" groups="brodan_backup.group_backup_owner"/>
+    <menuitem id="menu_brodan_backup_config" name="التهيئة" parent="menu_brodan_backup_root" action="action_brodan_backup_config" groups="brodan_backup.group_backup_owner"/>
+    <menuitem id="menu_brodan_backup_log" name="السجل" parent="menu_brodan_backup_root" action="action_brodan_backup_log" groups="brodan_backup.group_backup_owner"/>
+</odoo>

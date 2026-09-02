@@ -1,0 +1,5 @@
+.env
+rclone.conf
+*.dump
+.git
+__pycache__
