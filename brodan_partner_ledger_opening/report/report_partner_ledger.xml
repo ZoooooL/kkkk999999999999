@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_partnerledger_brodan_styles" inherit_id="accounting_pdf_reports.report_partnerledger">
+        <xpath expr="//style[contains(., 'double-border-table')]" position="replace">
+            <style type="text/css">
+                h2.text-center {
+                    color: #102A43 !important;
+                    font-weight: 800 !important;
+                    font-size: 20px !important;
+                    margin: 0 0 6px 0 !important;
+                    letter-spacing: 0;
+                }
+                .brodan-ledger-meta {
+                    color: #486581;
+                    font-size: 11.5px;
+                    margin: 0 0 14px 0;
+                }
+                .double-border-table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                    border-spacing: 0 !important;
+                    color: #102A43;
+                    font-size: 10.5px;
+                    border: 1px solid #D9E2EC !important;
+                    direction: rtl;
+                }
+                .double-border-table th,
+                .double-border-table td {
+                    border: none !important;
+                    border-bottom: 1px solid #E4ECF3 !important;
+                    padding: 8px 10px !important;
+                    vertical-align: middle;
+                }
+                .double-border-table thead th {
+                    background: #102A43 !important;
+                    color: #ffffff !important;
+                    font-weight: 700 !important;
+                    text-align: center !important;
+                    padding: 10px 8px !important;
+                    font-size: 11px !important;
+                    border-bottom: 0 !important;
+                }
+                .double-border-table tbody tr:nth-child(even) td { background: #F7FAFC !important; }
+                .double-border-table tbody tr:nth-child(odd) td { background: #ffffff !important; }
+                .double-border-table .text-end,
+                .double-border-table .text-right,
+                .double-border-table .text-center {
+                    font-variant-numeric: tabular-nums;
+                    white-space: nowrap;
+                }
+                .double-border-table .text-end,
+                .double-border-table .text-right {
+                    text-align: left !important;
+                }
+                .double-border-table .text-center { text-align: center !important; }
+                .brodan-ledger-opening td {
+                    background: #E6F1F8 !important;
+                    color: #102A43 !important;
+                    font-weight: 700 !important;
+                    border-bottom: 1px solid #B6D0E3 !important;
+                }
+                .brodan-ledger-closing td {
+                    background: #F3F7FB !important;
+                    color: #102A43 !important;
+                    font-weight: 700 !important;
+                    border-top: 1px solid #D9E2EC !important;
+                }
+                .brodan-partner-total td {
+                    background: #102A43 !important;
+                    color: #ffffff !important;
+                    font-weight: 700 !important;
+                    border: none !important;
+                    padding: 10px !important;
+                }
+                .brodan-balance-label {
+                    display: inline-block;
+                    padding: 2px 9px;
+                    border-radius: 10px;
+                    background: #102A43;
+                    color: #ffffff;
+                    font-size: 10px;
+                    font-weight: 700;
+                }
+                .brodan-ledger-closing .brodan-balance-label {
+                    background: #334E68;
+                }
+                .brodan-no-data {
+                    margin-top: 24px;
+                    padding: 16px 18px;
+                    background: #F7FAFC;
+                    border-right: 4px solid #102A43;
+                    color: #486581;
+                    font-size: 13px;
+                }
+                .double-border-table thead { display: table-header-group !important; }
+                .double-border-table tbody { display: table-row-group !important; }
+                .double-border-table tr { page-break-inside: avoid; }
+                .brodan-partner-page-break {
+                    page-break-before: always !important;
+                    break-before: page !important;
+                    page-break-after: auto !important;
+                    height: 0 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    border: 0 !important;
+                }
+            </style>
+        </xpath>
+    </template>
+
+    <template id="report_partnerledger_brodan_table" inherit_id="accounting_pdf_reports.report_partnerledger">
+        <xpath expr="//p[contains(@class, 'text-center')][.//span[@t-esc='o.name']]" position="after">
+            <p class="text-center brodan-ledger-meta">
+                <t t-if="o.user_id">
+                    <strong>المندوب: </strong>
+                    <span t-esc="o.user_id.name"/>
+                </t>
+                <t t-if="o.category_id">
+                    <t t-if="o.user_id"> — </t>
+                    <strong>التصنيف: </strong>
+                    <span t-esc="', '.join(o.category_id.mapped('name'))"/>
+                </t>
+            </p>
+        </xpath>
+
+        <xpath expr="//div[contains(@class, 'page')]" position="inside">
+            <t t-if="not docs">
+                <div class="brodan-no-data">
+                    لا توجد بيانات للشركاء المحددين في هذه الفترة. تحقق من التواريخ والتصنيف والشريك ودفاتر اليومية.
+                </div>
+            </t>
+        </xpath>
+
+        <xpath expr="//table[contains(@class, 'double-border-table')]/thead" position="replace">
+            <thead>
+                <tr>
+                    <th>التاريخ</th>
+                    <th>القيد</th>
+                    <th>المرجع</th>
+                    <th>مدين</th>
+                    <th>دائن</th>
+                    <th>الرصيد</th>
+                </tr>
+            </thead>
+        </xpath>
+
+        <xpath expr="//t[@t-call='web.html_container']" position="before">
+            <t t-set="pl_form" t-value="data.get('form') or {}"/>
+            <t t-set="year_start" t-value="datetime.date.today().replace(month=1, day=1).isoformat()"/>
+            <t t-set="date_from" t-value="pl_form.get('date_from') or year_start"/>
+            <t t-set="date_to" t-value="pl_form.get('date_to')"/>
+            <t t-set="wiz_id" t-value="pl_form.get('id')"/>
+            <t t-set="wiz" t-value="o.env['account.report.partner.ledger'].browse(wiz_id) if wiz_id else o.env['account.report.partner.ledger']"/>
+            <t t-set="form_flag" t-value="pl_form.get('x_show_opening_balance')"/>
+            <t t-set="wiz_flag" t-value="wiz.x_show_opening_balance if wiz_id and wiz.exists() else None"/>
+            <t t-set="show_opening" t-value="bool(form_flag) if form_flag is not None else (bool(wiz_flag) if wiz_flag is not None else True)"/>
+            <t t-set="account_types" t-value="['liability_payable'] if pl_form.get('result_selection') == 'supplier' else (['asset_receivable'] if pl_form.get('result_selection') == 'customer' else ['asset_receivable', 'liability_payable'])"/>
+            <t t-set="move_states" t-value="['posted'] if pl_form.get('target_move') == 'posted' else ['draft', 'posted']"/>
+            <t t-set="pl_company_id" t-value="(pl_form.get('used_context') or {}).get('company_id') or (pl_form.get('company_id')[0] if pl_form.get('company_id') else o.env.company.id)"/>
+            <t t-set="pl_journal_ids" t-value="pl_form.get('journal_ids') or (pl_form.get('used_context') or {}).get('journal_ids') or []"/>
+            <t t-set="ob_domain" t-value="[('partner_id', '=', o.id), ('parent_state', 'in', move_states), ('company_id', '=', pl_company_id), ('account_id.account_type', 'in', account_types), ('display_type', 'not in', ('line_section', 'line_note'))]"/>
+            <t t-set="ob_domain" t-value="ob_domain + [('date', '&lt;', date_from)] if (show_opening and date_from) else ob_domain"/>
+            <t t-set="ob_domain" t-value="ob_domain + [('journal_id', 'in', list(pl_journal_ids))] if (show_opening and pl_journal_ids) else ob_domain"/>
+            <t t-set="ob_domain" t-value="ob_domain + [('full_reconcile_id', '=', False)] if (show_opening and not pl_form.get('reconciled')) else ob_domain"/>
+            <t t-set="ob_group" t-value="o.env['account.move.line'].read_group(ob_domain, ['debit', 'credit'], []) if show_opening else []"/>
+            <t t-set="ob_debit" t-value="float((ob_group[0].get('debit') if ob_group else 0.0) or 0.0)"/>
+            <t t-set="ob_credit" t-value="float((ob_group[0].get('credit') if ob_group else 0.0) or 0.0)"/>
+            <t t-set="ob_balance" t-value="ob_debit - ob_credit"/>
+            <t t-set="ob_open_debit" t-value="ob_balance if ob_balance &gt; 0.004 else 0.0"/>
+            <t t-set="ob_open_credit" t-value="-ob_balance if ob_balance &lt; -0.004 else 0.0"/>
+            <t t-set="period_lines" t-value="[line for line in (lines(data, o) or []) if not line.get('is_initial_balance') and not line.get('is_closing_balance')]"/>
+            <t t-set="period_debit" t-value="sum_partner(data, o, 'debit') or 0.0"/>
+            <t t-set="period_credit" t-value="sum_partner(data, o, 'credit') or 0.0"/>
+            <t t-set="total_debit" t-value="(ob_open_debit if show_opening else 0.0) + period_debit"/>
+            <t t-set="total_credit" t-value="(ob_open_credit if show_opening else 0.0) + period_credit"/>
+            <t t-set="total_balance" t-value="((ob_balance if show_opening else 0.0) + period_debit) - period_credit"/>
+            <t t-set="keep_partner" t-value="abs(total_balance) &gt; 0.004"/>
+            <div t-if="keep_partner" class="brodan-partner-page-break"/>
+        </xpath>
+        <xpath expr="//t[@t-call='web.html_container']" position="attributes">
+            <attribute name="t-if">keep_partner</attribute>
+        </xpath>
+
+        <xpath expr="//table[contains(@class, 'double-border-table')]/tbody" position="replace">
+            <tbody>
+                <tr class="brodan-ledger-opening" t-if="show_opening and (ob_open_debit or ob_open_credit)">
+                    <td>
+                        <span t-esc="date_from"/>
+                    </td>
+                    <td/>
+                    <td class="text-center">
+                        <span class="brodan-balance-label">الرصيد الافتتاحي</span>
+                    </td>
+                    <td class="text-end">
+                        <span t-if="ob_open_debit" t-esc="ob_open_debit" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                    </td>
+                    <td class="text-end">
+                        <span t-if="ob_open_credit" t-esc="ob_open_credit" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                    </td>
+                    <td class="text-end brodan-balance-amount">
+                        <span t-if="ob_balance" t-esc="ob_balance" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                    </td>
+                </tr>
+                <t t-foreach="period_lines" t-as="line">
+                    <tr>
+                        <td>
+                            <span t-esc="line.get('date')"/>
+                        </td>
+                        <td>
+                            <span t-esc="line.get('code')"/>
+                        </td>
+                        <td class="text-center">
+                            <span t-esc="line.get('displayed_name') or line.get('ref') or line.get('name')"/>
+                        </td>
+                        <td class="text-end">
+                            <span t-if="line.get('debit')" t-esc="line.get('debit')" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                        </td>
+                        <td class="text-end">
+                            <span t-if="line.get('credit')" t-esc="line.get('credit')" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                        </td>
+                        <td class="text-end">
+                            <t t-set="line_progress" t-value="(line.get('progress', 0.0) or 0.0) + (ob_balance if show_opening else 0.0)"/>
+                            <span t-if="abs(line_progress) &gt; 0.004" t-esc="line_progress" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                        </td>
+                    </tr>
+                </t>
+                <tr class="brodan-ledger-closing" t-if="period_lines">
+                    <td>
+                        <span t-esc="date_to"/>
+                    </td>
+                    <td/>
+                    <td class="text-center">
+                        <span class="brodan-balance-label">الرصيد النهائي</span>
+                    </td>
+                    <td class="text-end"/>
+                    <td class="text-end"/>
+                    <td class="text-end brodan-balance-amount">
+                        <span t-if="abs(total_balance) &gt; 0.004" t-esc="total_balance" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                    </td>
+                </tr>
+                <tr class="brodan-partner-total">
+                    <td colspan="3">
+                        <span>الإجمالي</span>
+                        <t t-if="o.ref">
+                            —
+                            <span t-esc="o.ref"/>
+                        </t>
+                        —
+                        <span t-esc="o.name"/>
+                    </td>
+                    <td class="text-end">
+                        <span t-if="total_debit" t-esc="total_debit" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                    </td>
+                    <td class="text-end">
+                        <span t-if="total_credit" t-esc="total_credit" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                    </td>
+                    <td class="text-end">
+                        <span t-if="abs(total_balance) &gt; 0.004" t-esc="total_balance" t-options="{'widget': 'monetary', 'display_currency': res_company.currency_id}"/>
+                    </td>
+                </tr>
+            </tbody>
+        </xpath>
+    </template>
+</odoo>
