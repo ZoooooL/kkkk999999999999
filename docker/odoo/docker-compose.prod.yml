@@ -1,0 +1,28 @@
+# Drop-in for https://brodansh.de.com.eg on the live EC2 host.
+# Reuses PostgreSQL 16 at /var/lib/postgresql/16/main (no 51GB copy).
+# Leaves nginx TLS and the brodan-att instance (8079) on the host.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d
+
+services:
+  odoo:
+    build: .
+    image: brodan-odoo:18
+    network_mode: host
+    user: "${ODOO_UID}:${ODOO_GID}"
+    environment:
+      HOST: ""
+      USER: odoo
+      PASSWORD: ""
+    volumes:
+      - /odoo:/odoo
+      - /etc/odoo-server.conf:/etc/odoo-server.conf:ro
+      - /var/run/postgresql:/var/run/postgresql
+      - ${ODOO_DATA_DIR}:/var/lib/odoo
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - ../../brodan_backup:/mnt/extra-addons/brodan_backup:ro
+    working_dir: /odoo/odoo-server
+    command:
+      - -c
+      - /etc/odoo-server.conf
+    restart: unless-stopped

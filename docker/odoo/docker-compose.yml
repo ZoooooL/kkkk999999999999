@@ -1,0 +1,51 @@
+# Demo stack: Community Odoo 18 + Postgres 16 + nginx.
+# Production live site: docker-compose.prod.yml (same odoo-bin, host postgres/nginx).
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    volumes:
+      - odoo-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  odoo:
+    build: .
+    image: brodan-odoo:18
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - ./config/odoo.conf:/etc/odoo/odoo.conf:ro
+      - ../../brodan_backup:/mnt/extra-addons/brodan_backup:ro
+    expose:
+      - "8069"
+      - "8072"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.18
+    depends_on:
+      - odoo
+    ports:
+      - "18080:80"
+    volumes:
+      - ./nginx/brodansh.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+volumes:
+  odoo-data:
+  odoo-db:

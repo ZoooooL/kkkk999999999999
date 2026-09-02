@@ -3,3 +3,4 @@ __pycache__/
 .env
 docker/backup/.env
 docker/backup/rclone.conf
+docker/odoo/.env
