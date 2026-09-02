@@ -1,5 +1,0 @@
-20260902T124151Z
-target=Hetzner CX33 Ubuntu 24.04 fsn1/nbg1
-live=https://brodansh.de.com.eg
-live_version=18.0+e
-skip-images=1

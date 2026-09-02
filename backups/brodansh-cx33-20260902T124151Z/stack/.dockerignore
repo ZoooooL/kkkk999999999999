@@ -1,7 +1,0 @@
-FROM odoo:18.0
-.git
-.env
-backups
-certs
-enterprise
-*.md
